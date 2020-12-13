@@ -12,7 +12,6 @@ enum Word {
     Colon,
     Compile,
 
-
     // Stack operations
     Drop,
     Pick,
@@ -51,19 +50,34 @@ impl Word {
                 }
                 false
             }
-            Colon => {
-                ctxt.compiling = true;
-                false
-            }
-            Compile => {
-                if !ctxt.compiling {
-                    ctxt.compiling = true;
+            Colon => match ctxt.state {
+                State::Interpreting => {
+                    ctxt.state = State::WaitingForCompilationIdentifier;
                     false
-                } else {
+                }
+                _ => {
                     println!("Error: Already in compilation state");
                     true
                 }
-            }
+            },
+            Compile => match &ctxt.state {
+                State::CompilationPaused {
+                    name,
+                    subwords,
+                    stack_count,
+                } => {
+                    ctxt.state = State::Compiling {
+                        name: name.clone(),
+                        subwords: subwords.clone(),
+                        stack_count: *stack_count,
+                    };
+                    false
+                }
+                _ => {
+                    println!("Error: Already in compilation state");
+                    true
+                }
+            },
 
             Drop => match ctxt.data_stack.pop() {
                 Some(_) => false,
@@ -195,11 +209,25 @@ impl Word {
     }
 }
 
+pub enum State {
+    Interpreting,
+    WaitingForCompilationIdentifier,
+    Compiling {
+        name: String,
+        subwords: Vec<String>,
+        stack_count: usize,
+    },
+    CompilationPaused {
+        name: String,
+        subwords: Vec<String>,
+        stack_count: usize,
+    },
+}
+
 pub struct Context {
     data_stack: Vec<u64>,
     dictionary: HashMap<String, Word>,
-    compiling: bool,
-    compile_state: Option<(String, Vec<String>, usize)>,
+    state: State,
 }
 
 impl Context {
@@ -208,8 +236,7 @@ impl Context {
         let mut ctxt = Self {
             data_stack: Vec::new(),
             dictionary: HashMap::new(),
-            compiling: false,
-            compile_state: None,
+            state: State::Interpreting,
         };
 
         let mut install = |w: Word| ctxt.dictionary.insert(w.name().to_string(), w);
@@ -267,13 +294,18 @@ impl Context {
         for word in line.split_whitespace().map(|s| s.to_lowercase()) {
             let err = match word.as_str() {
                 "bye" => return true,
-                s => {
-                    if self.compiling {
-                        self.compile_word(s)
-                    } else {
-                        self.interpret_word(s)
+                s => match self.state {
+                    State::Interpreting | State::CompilationPaused { .. } => self.interpret_word(s),
+                    State::WaitingForCompilationIdentifier => {
+                        self.state = State::Compiling {
+                            name: s.to_string(),
+                            subwords: Vec::new(),
+                            stack_count: self.data_stack.len(),
+                        };
+                        false
                     }
-                }
+                    State::Compiling { .. } => self.compile_word(s),
+                },
             };
             if err {
                 break;
@@ -287,59 +319,73 @@ impl Context {
     fn compile_word(&mut self, word: &str) -> bool {
         match word {
             "[" => {
-                self.compiling = false;
+                match self.state {
+                    State::Compiling {
+                        ref name,
+                        ref subwords,
+                        ref stack_count,
+                    } => {
+                        self.state = State::CompilationPaused {
+                            name: name.clone(),
+                            subwords: subwords.clone(),
+                            stack_count: *stack_count,
+                        }
+                    }
+                    _ => {
+                        println!("Error: Encountered '[' outside of definition")
+                    }
+                }
+
                 false
             }
-            "literal" => match self.compile_state.as_mut() {
-                Some((_, sws, _)) => match self.data_stack.pop() {
+            "literal" => match self.state {
+                State::Compiling { ref mut subwords, .. } => match self.data_stack.pop() {
                     Some(x) => {
-                        sws.push(x.to_string());
+                        subwords.push(x.to_string());
                         false
                     }
                     None => stack_underflow(),
                 },
-                None => {
+                _ => {
                     println!("Error: 'literal' seen outside definition");
                     true
                 }
             },
-            ";" => {
-                self.compiling = false;
-                match self.compile_state.take() {
-                    Some((n, sws, count)) => {
-                        if self.dictionary.contains_key(&n) {
-                            println!("Error: '{}' already defined", n);
-                            true
-                        } else if count != self.data_stack.len() {
-                            println!(
-                                "Error: Stack size changed during definition (was {}, now {})",
-                                count,
-                                self.data_stack.len()
-                            );
-                            true
-                        } else {
-                            self.dictionary.insert(n.clone(), Word::Custom(n, sws));
-                            false
-                        }
-                    }
-                    None => {
-                        println!("Error: Definition ended without data");
+            ";" => match &self.state {
+                State::Compiling {
+                    name,
+                    subwords,
+                    stack_count,
+                } => {
+                    if self.dictionary.contains_key(name) {
+                        println!("Error: '{}' already defined", name);
+                        true
+                    } else if *stack_count != self.data_stack.len() {
+                        println!(
+                            "Error: Stack size changed during definition (was {}, now {})",
+                            stack_count,
+                            self.data_stack.len()
+                        );
+                        true
+                    } else {
+                        self.dictionary
+                            .insert(name.clone(), Word::Custom(name.clone(), subwords.clone()));
                         false
                     }
                 }
-            }
-            _ => match self.compile_state.as_mut() {
-                Some((_, sws, _)) => {
+                _ => {
+                    println!("Error: Definition ended in non-compilation state");
+                    false
+                }
+            },
+            _ => match self.state {
+                State::Compiling { ref mut subwords, .. } => {
                     // TODO Check that words exist
                     // TODO Prevent recursion
-                    sws.push(word.to_string());
+                    subwords.push(word.to_string());
                     false
                 }
-                None => {
-                    self.compile_state =
-                        Some((word.to_string(), Vec::new(), self.data_stack.len()));
-                    false
-                }
+                _ => unreachable!("Expected to be in compilation state"),
             },
         }
     }
