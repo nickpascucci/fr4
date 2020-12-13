@@ -26,7 +26,7 @@ enum Word {
     Mul,
     Div,
 
-    Custom(String, Vec<String>),
+    Defined(String, Vec<String>),
 }
 
 fn stack_underflow() -> bool {
@@ -168,7 +168,7 @@ impl Word {
                 },
                 None => stack_underflow(),
             },
-            Custom(_, subwords) => {
+            Defined(_, subwords) => {
                 for sw in subwords.iter() {
                     if ctxt.interpret_word(sw) {
                         return true;
@@ -204,7 +204,7 @@ impl Word {
             Mul => "*",
             Div => "/",
 
-            Custom(n, _) => n,
+            Defined(n, _) => n,
         }
     }
 }
@@ -369,7 +369,7 @@ impl Context {
                         true
                     } else {
                         self.dictionary
-                            .insert(name.clone(), Word::Custom(name.clone(), subwords.clone()));
+                            .insert(name.clone(), Word::Defined(name.clone(), subwords.clone()));
                         false
                     }
                 }
