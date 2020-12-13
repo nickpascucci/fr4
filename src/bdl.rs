@@ -5,9 +5,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 #[derive(Clone)]
-enum Word<'a> {
+enum Word {
+    // Interpreter
     Abort,
     Words,
+    Colon,
+    Compile,
+
 
     // Stack operations
     Drop,
@@ -23,16 +27,17 @@ enum Word<'a> {
     Mul,
     Div,
 
-    Custom(&'a str, Vec<&'a str>),
+    Custom(String, Vec<String>),
 }
 
-impl<'a> Word<'a> {
+fn stack_underflow() -> bool {
+    println!("Stack underflow");
+    true
+}
+
+impl Word {
     fn call(&self, ctxt: &mut Context) -> bool {
         use Word::*;
-        let stack_underflow = || {
-            println!("Stack underflow");
-            true
-        };
 
         let err = match self {
             Abort => {
@@ -45,6 +50,19 @@ impl<'a> Word<'a> {
                     println!("{}", w);
                 }
                 false
+            }
+            Colon => {
+                ctxt.compiling = true;
+                false
+            }
+            Compile => {
+                if !ctxt.compiling {
+                    ctxt.compiling = true;
+                    false
+                } else {
+                    println!("Error: Already in compilation state");
+                    true
+                }
             }
 
             Drop => match ctxt.data_stack.pop() {
@@ -61,16 +79,14 @@ impl<'a> Word<'a> {
                 None => stack_underflow(),
             },
             Swap => match ctxt.data_stack.pop() {
-                Some(y) => {
-                    match ctxt.data_stack.pop() {
-                        Some(x) => {
-                            ctxt.data_stack.push(y);
-                            ctxt.data_stack.push(x);
-                            false
-                        }
-                        None => stack_underflow(),
+                Some(y) => match ctxt.data_stack.pop() {
+                    Some(x) => {
+                        ctxt.data_stack.push(y);
+                        ctxt.data_stack.push(x);
+                        false
                     }
-                }
+                    None => stack_underflow(),
+                },
                 None => stack_underflow(),
             },
             Pick => match ctxt.data_stack.pop() {
@@ -153,12 +169,14 @@ impl<'a> Word<'a> {
         }
     }
 
-    fn name(&self) -> &'a str {
+    fn name(&self) -> &str {
         use Word::*;
         // Note: All names should be normalized to lower case.
         match self {
             Abort => "abort",
             Words => "words",
+            Colon => ":",
+            Compile => "]",
 
             Drop => "drop",
             Pick => "pick",
@@ -177,23 +195,29 @@ impl<'a> Word<'a> {
     }
 }
 
-pub struct Context<'a> {
+pub struct Context {
     data_stack: Vec<u64>,
-    dictionary: HashMap<&'a str, Word<'a>>,
+    dictionary: HashMap<String, Word>,
+    compiling: bool,
+    compile_state: Option<(String, Vec<String>, usize)>,
 }
 
-impl<'a> Context<'a> {
+impl Context {
     pub fn new() -> Self {
         use Word::*;
         let mut ctxt = Self {
             data_stack: Vec::new(),
             dictionary: HashMap::new(),
+            compiling: false,
+            compile_state: None,
         };
 
-        let mut install = |w: Word<'a>| ctxt.dictionary.insert(w.name(), w);
+        let mut install = |w: Word| ctxt.dictionary.insert(w.name().to_string(), w);
 
         install(Abort);
         install(Words);
+        install(Colon);
+        install(Compile);
 
         install(Drop);
         install(Pick);
@@ -241,14 +265,83 @@ impl<'a> Context<'a> {
 
     fn interpret_line(&mut self, line: &str) -> bool {
         for word in line.split_whitespace().map(|s| s.to_lowercase()) {
-            match word.as_str() {
+            let err = match word.as_str() {
                 "bye" => return true,
-                _ => self.interpret_word(&word),
+                s => {
+                    if self.compiling {
+                        self.compile_word(s)
+                    } else {
+                        self.interpret_word(s)
+                    }
+                }
             };
+            if err {
+                break;
+            }
         }
         println!("ok");
         self.print_data_stack();
         false
+    }
+
+    fn compile_word(&mut self, word: &str) -> bool {
+        match word {
+            "[" => {
+                self.compiling = false;
+                false
+            }
+            "literal" => match self.compile_state.as_mut() {
+                Some((_, sws, _)) => match self.data_stack.pop() {
+                    Some(x) => {
+                        sws.push(x.to_string());
+                        false
+                    }
+                    None => stack_underflow(),
+                },
+                None => {
+                    println!("Error: 'literal' seen outside definition");
+                    true
+                }
+            },
+            ";" => {
+                self.compiling = false;
+                match self.compile_state.take() {
+                    Some((n, sws, count)) => {
+                        if self.dictionary.contains_key(&n) {
+                            println!("Error: '{}' already defined", n);
+                            true
+                        } else if count != self.data_stack.len() {
+                            println!(
+                                "Error: Stack size changed during definition (was {}, now {})",
+                                count,
+                                self.data_stack.len()
+                            );
+                            true
+                        } else {
+                            self.dictionary.insert(n.clone(), Word::Custom(n, sws));
+                            false
+                        }
+                    }
+                    None => {
+                        println!("Error: Definition ended without data");
+                        false
+                    }
+                }
+            }
+            _ => match self.compile_state.as_mut() {
+                Some((_, sws, _)) => {
+                    // TODO Check that words exist
+                    // TODO Prevent recursion
+                    sws.push(word.to_string());
+                    false
+                }
+                None => {
+                    self.compile_state =
+                        Some((word.to_string(), Vec::new(), self.data_stack.len()));
+                    false
+                }
+            },
+        }
     }
 
     fn interpret_word(&mut self, word: &str) -> bool {
