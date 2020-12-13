@@ -1,0 +1,27 @@
+# Local Variables:
+# fill-column: 80
+# End:
+
+#+TITLE: FR4
+
+FR4 is a printed circuit board layout and design tool. The goal is to do for PCB
+design what OpenSCAD did for STLs. Boards are described using a programming
+language which generates a model of the design. This model can then be rendered
+for display, serialized to a Gerber file set for manufacture, or simulated for
+design verification.
+
+* Building FR4
+
+All you should need to build FR4 is an up-to-date Rust installation.
+
+#+BEGIN_SRC sh
+  cargo build --release
+#+END_SRC
+
+* License
+
+FR4 is licensed under the GNU General Public License Version 3. Note that this
+license does not preclude using FR4 for proprietary projects. However, it does
+require that any redistribution of FR4, in original or modified form, be
+provided to users with the corresponding source code and that derivative works
+retain the same license.

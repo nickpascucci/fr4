@@ -1,0 +1,75 @@
+# Local Variables:
+# fill-column: 80
+# End:
+
+#+TITLE: FR4's Internal Design
+
+This document outlines the major data structures and control flows in the FR4
+application. It is probably mostly of interest for people hacking on FR4 itself.
+
+* Overview
+
+Most computer aided design tools use a visual paradigm where the user interacts
+with a graphical interface to modify their model. This approach is reasonably
+intuitive, and with practice users can become quite proficient with these
+tools. It does have a few downsides, however: high resource requirements, large
+amounts of interface code, proprietary file formats, inconsistent conceptual
+models, and limited flexibility make these types of CAD applications difficult
+for hobbyists and hackers to use and extend.
+
+Fortunately alternative approaches exist. OpenSCAD, for example, is a tool for
+create three dimensional solid models which is built around a programming
+language. Users control the tool by writing a program which describes solid
+geometry operations such as taking two bodies and joining them together;
+subtracting one solid from another; resizing, reorienting, and repositioning
+objects as needed, all from a text-based interface. A related method was used by
+Charles Moore, the creator of the Forth programming language, to design
+microprocessor chips. He wrote a Very Large Scale Integration design tool in
+Forth, running on the bare metal of a PC, which allowed him to model his chips
+using the same language.
+
+FR4 draws inspiration from these systems heavily in order to provide a printed
+circuit board design tool which is low in its resource needs, easily extended,
+and (I hope) easy to use. The core system is implemented in the Rust programming
+language, providing a high level and safe programming language while retaining
+high performance. Graphics displays are generated using the SDL2 library,
+enabling FR4 to make use of GPU acceleration and operate across platforms.
+
+Of course, the primary user interface is of the most concern. To design a board,
+users write an FR4 program in a Forth-inspired language, which is interpreted by
+the FR4 application. You may be asking, "why Forth?" The reason is because Forth
+is a very simple language at its core, and this enables FR4 to simultaneously
+provide a very expressive system while not burdening users with learning a
+complex syntax or semantics, and while keeping the resource requirements for the
+system to a minimum.
+
+* Goals
+
+1. Provide a powerful design tool which can be easily extended.
+2. Run comfortably on consumer-grade devices, including systems such as the
+   Raspberry Pi.
+3. Generate standards-compliant Gerber outputs which can be sent to any
+   fabrication house for manufacture.
+4. Provide instant feedback on the design through visualization and analysis.
+
+* Topics
+
+- Interpreter design
+  - Word set
+  - Built-in words
+  - User-defined words
+  - Memory safety
+  - Runtime checks
+  - Type checking
+- Internal model representation
+- Conversion to Gerber format
+- Use of SDL/Piston/GFX
+  - Vector graphics to bitmap graphics conversion
+- Use of Dear IMGUI, etc.
+
+* Built-in Words
+
+- Basic arithmetic operators: =+=, =-=, =*=, =/=
+- Basic stack manipulations: =dup=, =swap=, =drop=, =pick=
+- I/O: =.=, =.S=
+- Interpreter: =abort=, =words=
