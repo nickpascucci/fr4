@@ -11,6 +11,7 @@ enum Word {
     Words,
     Colon,
     Compile,
+    Comment,
 
     // Stack operations
     Drop,
@@ -78,6 +79,10 @@ impl Word {
                     true
                 }
             },
+            Comment => {
+                ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
+                false
+            }
 
             Drop => match ctxt.data_stack.pop() {
                 Some(_) => false,
@@ -191,6 +196,7 @@ impl Word {
             Words => "words",
             Colon => ":",
             Compile => "]",
+            Comment => "(",
 
             Drop => "drop",
             Pick => "pick",
@@ -209,8 +215,10 @@ impl Word {
     }
 }
 
+#[derive(Clone)]
 pub enum State {
     Interpreting,
+    WaitingForCommentClose(Box<Self>),
     WaitingForCompilationIdentifier,
     Compiling {
         name: String,
@@ -245,6 +253,7 @@ impl Context {
         install(Words);
         install(Colon);
         install(Compile);
+        install(Comment);
 
         install(Drop);
         install(Pick);
@@ -291,24 +300,34 @@ impl Context {
     }
 
     fn interpret_line(&mut self, line: &str) -> bool {
-        for word in line.split_whitespace().map(|s| s.to_lowercase()) {
-            let err = match word.as_str() {
-                "bye" => return true,
-                s => match self.state {
-                    State::Interpreting | State::CompilationPaused { .. } => self.interpret_word(s),
-                    State::WaitingForCompilationIdentifier => {
-                        self.state = State::Compiling {
-                            name: s.to_string(),
-                            subwords: Vec::new(),
-                            stack_count: self.data_stack.len(),
-                        };
-                        false
-                    }
-                    State::Compiling { .. } => self.compile_word(s),
-                },
-            };
-            if err {
-                break;
+        if !line.trim_start().starts_with("\\") {
+            for word in line.split_whitespace().map(|s| s.to_lowercase()) {
+                let err = match word.as_str() {
+                    "bye" => return true,
+                    s => match &self.state {
+                        State::Interpreting | State::CompilationPaused { .. } => {
+                            self.interpret_word(s)
+                        }
+                        State::WaitingForCompilationIdentifier => {
+                            self.state = State::Compiling {
+                                name: s.to_string(),
+                                subwords: Vec::new(),
+                                stack_count: self.data_stack.len(),
+                            };
+                            false
+                        }
+                        State::Compiling { .. } => self.compile_word(s),
+                        State::WaitingForCommentClose(prev) => {
+                            if s.ends_with(")") {
+                                self.state = *prev.clone();
+                            }
+                            false
+                        }
+                    },
+                };
+                if err {
+                    break;
+                }
             }
         }
         println!("ok");
@@ -339,7 +358,9 @@ impl Context {
                 false
             }
             "literal" => match self.state {
-                State::Compiling { ref mut subwords, .. } => match self.data_stack.pop() {
+                State::Compiling {
+                    ref mut subwords, ..
+                } => match self.data_stack.pop() {
                     Some(x) => {
                         subwords.push(x.to_string());
                         false
@@ -379,7 +400,9 @@ impl Context {
                 }
             },
             _ => match self.state {
-                State::Compiling { ref mut subwords, .. } => {
+                State::Compiling {
+                    ref mut subwords, ..
+                } => {
                     // TODO Check that words exist
                     // TODO Prevent recursion
                     subwords.push(word.to_string());
