@@ -17,6 +17,10 @@ pub struct App {
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
+        // Clear the screen.
+        graphics::clear(graphics::color::BLACK, &mut self.gl);
+
+        // Render model.
         self.model.read().unwrap().render(&mut self.gl, args);
     }
 
