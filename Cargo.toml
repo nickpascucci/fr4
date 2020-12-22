@@ -18,3 +18,7 @@ maintenance = { status = "experimental" }
 
 [dependencies]
 rustyline = "7.0.0"
+pistoncore-sdl2_window = "0.66.0"
+piston = "0.52.1"
+piston2d-graphics = "0.39.0"
+piston2d-opengl_graphics = "0.76.0"

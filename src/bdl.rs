@@ -1,8 +1,11 @@
-/// Board Description Language
+use crate::model::Component;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
+
+/// Board Description Language
 
 #[derive(Clone)]
 enum Word {
@@ -236,15 +239,17 @@ pub struct Context {
     data_stack: Vec<u64>,
     dictionary: HashMap<String, Word>,
     state: State,
+    model: Arc<RwLock<Component>>,
 }
 
 impl Context {
-    pub fn new() -> Self {
+    pub fn new(model: Arc<RwLock<Component>>) -> Self {
         use Word::*;
         let mut ctxt = Self {
             data_stack: Vec::new(),
             dictionary: HashMap::new(),
             state: State::Interpreting,
+            model,
         };
 
         let mut install = |w: Word| ctxt.dictionary.insert(w.name().to_string(), w);
