@@ -25,6 +25,7 @@ impl Shape {
         match self {
             Shape::Rectangle { xy1, xy2, rot } => {
                 let rect = rectangle::rectangle_by_corners(xy1.x, xy1.y, xy2.x, xy2.y);
+                let transform = transform.rot_rad(*rot as f64);
                 rectangle(color, rect, transform, gl);
             }
         }
@@ -32,6 +33,7 @@ impl Shape {
 }
 
 pub enum Component {
+    Board(Shape),
     Pad(Point, Shape),
     Group(Vec<Component>), // Do groups need transformation data to draw?
 }
@@ -43,6 +45,9 @@ impl Component {
         gl.draw(args.viewport(), |c, gl| {
             use Component::*;
             match self {
+                Board(s) => {
+                    s.render(GREEN, c.transform, gl);
+                }
                 Pad(p, s) => {
                     let transform = c.transform.trans(p.x, p.y);
                     s.render(RED, transform, gl);

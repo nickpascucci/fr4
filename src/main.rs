@@ -28,7 +28,8 @@ impl App {
 }
 
 fn main() {
-    let opengl = OpenGL::V3_2;
+    // let opengl = OpenGL::V3_2;
+    let opengl = OpenGL::V2_1;
 
     let mut window: Window = WindowSettings::new("FR4", (640, 480))
         .graphics_api(opengl)
