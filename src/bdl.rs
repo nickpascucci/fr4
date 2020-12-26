@@ -41,6 +41,30 @@ fn stack_underflow() -> bool {
     true
 }
 
+fn type_error(expected: &str, actual: &StackItem) -> bool {
+    println!("Type error: expected {}, got {:?}", expected, actual);
+    true
+}
+
+/// Call a binary operator on numeric types.
+fn call_binop<F>(ctxt: &mut Context, op: F) -> bool
+where
+    F: Fn(u64, u64) -> u64,
+{
+    match ctxt.data_stack.pop() {
+        Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
+            Some(StackItem::Number(x)) => {
+                ctxt.data_stack.push(StackItem::Number(op(x, y)));
+                false
+            }
+            Some(x) => type_error("Number", &x),
+            None => stack_underflow(),
+        },
+        Some(y) => type_error("Number", &y),
+        None => stack_underflow(),
+    }
+}
+
 impl Word {
     /// Perform the interpretation semantics of the word.
     ///
@@ -114,7 +138,7 @@ impl Word {
 
             Dup => match ctxt.data_stack.pop() {
                 Some(x) => {
-                    ctxt.data_stack.push(x);
+                    ctxt.data_stack.push(x.clone());
                     ctxt.data_stack.push(x);
                     false
                 }
@@ -132,16 +156,21 @@ impl Word {
                 None => stack_underflow(),
             },
             Pick => match ctxt.data_stack.pop() {
-                Some(i) => {
+                Some(StackItem::Number(i)) => {
                     if (i as usize) > ctxt.data_stack.len() {
                         stack_underflow()
                     } else {
                         let idx = ctxt.data_stack.len() - i as usize;
-                        let x = ctxt.data_stack.get(idx).copied().unwrap_or(0);
+                        let x = ctxt
+                            .data_stack
+                            .get(idx)
+                            .cloned()
+                            .unwrap_or(StackItem::Number(0));
                         ctxt.data_stack.push(x);
                         false
                     }
                 }
+                Some(x) => type_error("Number", &x),
                 None => stack_underflow(),
             },
             Show => {
@@ -150,52 +179,16 @@ impl Word {
             }
             Display => match ctxt.data_stack.pop() {
                 Some(x) => {
-                    println!("{}", x);
+                    println!("{:?}", x);
                     false
                 }
                 None => stack_underflow(),
             },
 
-            Add => match ctxt.data_stack.pop() {
-                Some(y) => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        ctxt.data_stack.push(x + y);
-                        false
-                    }
-                    None => stack_underflow(),
-                },
-                None => stack_underflow(),
-            },
-            Sub => match ctxt.data_stack.pop() {
-                Some(y) => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        ctxt.data_stack.push(x - y);
-                        false
-                    }
-                    None => stack_underflow(),
-                },
-                None => stack_underflow(),
-            },
-            Mul => match ctxt.data_stack.pop() {
-                Some(y) => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        ctxt.data_stack.push(x * y);
-                        false
-                    }
-                    None => stack_underflow(),
-                },
-                None => stack_underflow(),
-            },
-            Div => match ctxt.data_stack.pop() {
-                Some(y) => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        ctxt.data_stack.push(x / y);
-                        false
-                    }
-                    None => stack_underflow(),
-                },
-                None => stack_underflow(),
-            },
+            Add => call_binop(ctxt, std::ops::Add::add),
+            Sub => call_binop(ctxt, std::ops::Sub::sub),
+            Mul => call_binop(ctxt, std::ops::Mul::mul),
+            Div => call_binop(ctxt, std::ops::Div::div),
             Defined(_, subwords) => {
                 for sw in subwords.iter() {
                     if ctxt.interpret_word(sw) {
@@ -221,9 +214,7 @@ impl Word {
         use Word::*;
 
         let err = match self {
-            Abort => {
-                self.call(ctxt)
-            }
+            Abort => self.call(ctxt),
             Colon => {
                 println!("Error: Already in compilation state");
                 true
@@ -282,9 +273,13 @@ impl Word {
                 State::Compiling {
                     ref mut subwords, ..
                 } => match ctxt.data_stack.pop() {
-                    Some(x) => {
+                    Some(StackItem::Number(x)) => {
                         subwords.push(x.to_string());
                         false
+                    }
+                    Some(x) => {
+                        println!("Can't create literal from stack item {:?}", x);
+                        true
                     }
                     None => stack_underflow(),
                 },
@@ -363,8 +358,14 @@ pub enum State {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum StackItem {
+    Number(u64),
+    String(String),
+}
+
 pub struct Context {
-    data_stack: Vec<u64>,
+    data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
     state: State,
     model: Arc<RwLock<Component>>,
@@ -514,7 +515,7 @@ impl Context {
             }
             None => match u64::from_str(word) {
                 Ok(x) => {
-                    self.data_stack.push(x);
+                    self.data_stack.push(StackItem::Number(x));
                     false
                 }
                 Err(_) => {
@@ -526,7 +527,7 @@ impl Context {
     }
 
     fn print_data_stack(&self) {
-        self.data_stack.iter().for_each(|i| print!("{} ", i));
+        self.data_stack.iter().for_each(|i| print!("{:?} ", i));
         println!()
     }
 
