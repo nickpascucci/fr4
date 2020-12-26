@@ -13,7 +13,10 @@ enum Word {
     Abort,
     Words,
     Colon,
+    SemiColon,
+    Interpret,
     Compile,
+    Literal,
     Comment,
 
     // Stack operations
@@ -39,12 +42,17 @@ fn stack_underflow() -> bool {
 }
 
 impl Word {
+    /// Perform the interpretation semantics of the word.
+    ///
+    /// For predefined words the behavior varies. For user definitions, the word will execute each
+    /// of its subwords in turn.
     fn call(&self, ctxt: &mut Context) -> bool {
         use Word::*;
 
         let err = match self {
             Abort => {
                 ctxt.data_stack.clear();
+                ctxt.state = State::Interpreting;
                 println!("Aborted");
                 false
             }
@@ -64,6 +72,14 @@ impl Word {
                     true
                 }
             },
+            SemiColon => {
+                println!("Error: Cannot end definition in state {:?}", ctxt.state);
+                true
+            }
+            Interpret => {
+                println!("Error: Already in interpretation state");
+                true
+            }
             Compile => match &ctxt.state {
                 State::CompilationPaused {
                     name,
@@ -82,6 +98,10 @@ impl Word {
                     true
                 }
             },
+            Literal => {
+                println!("'Literal' seen outside of definition");
+                true
+            }
             Comment => {
                 ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
                 false
@@ -191,6 +211,111 @@ impl Word {
         }
     }
 
+    /// Perform the compilation-time behavior of a word.
+    ///
+    /// Most words simply append themselves to the current definition during compilation time. A few
+    /// exceptions exist; these are known in the Forth lexicon as "immediate" words. FR4's dialect
+    /// does not allow the user to define their own immediate words, as they are hard coded here.
+    fn compile(&self, ctxt: &mut Context) -> bool {
+        use State::*;
+        use Word::*;
+
+        let err = match self {
+            Abort => {
+                self.call(ctxt)
+            }
+            Colon => {
+                println!("Error: Already in compilation state");
+                true
+            }
+            SemiColon => {
+                if let State::Compiling {
+                    ref name,
+                    ref mut subwords,
+                    ref stack_count,
+                } = ctxt.state
+                {
+                    if ctxt.dictionary.contains_key(name) {
+                        println!("Error: '{}' already defined", name);
+                        true
+                    } else if *stack_count != ctxt.data_stack.len() {
+                        println!(
+                            "Error: Stack size changed during definition (was {}, now {})",
+                            stack_count,
+                            ctxt.data_stack.len()
+                        );
+                        true
+                    } else {
+                        ctxt.dictionary
+                            .insert(name.clone(), Word::Defined(name.clone(), subwords.clone()));
+                        ctxt.state = State::Interpreting;
+                        false
+                    }
+                } else {
+                    println!("Error: Unexpected state {:?}", ctxt.state);
+                    true
+                }
+            }
+            Interpret => match &ctxt.state {
+                Compiling {
+                    name,
+                    subwords,
+                    stack_count,
+                } => {
+                    ctxt.state = CompilationPaused {
+                        name: name.clone(),
+                        subwords: subwords.clone(),
+                        stack_count: *stack_count,
+                    };
+                    false
+                }
+                _ => {
+                    println!("Error: Unexpected state {:?}", ctxt.state);
+                    true
+                }
+            },
+            Compile => {
+                println!("Error: Already in compilation state");
+                true
+            }
+            Literal => match ctxt.state {
+                State::Compiling {
+                    ref mut subwords, ..
+                } => match ctxt.data_stack.pop() {
+                    Some(x) => {
+                        subwords.push(x.to_string());
+                        false
+                    }
+                    None => stack_underflow(),
+                },
+                _ => {
+                    println!("Error: unexpected state {:?}", ctxt.state);
+                    true
+                }
+            },
+            Comment => {
+                ctxt.state = WaitingForCommentClose(Box::new(ctxt.state.clone()));
+                false
+            }
+            _ => {
+                if let Compiling {
+                    ref mut subwords, ..
+                } = ctxt.state
+                {
+                    subwords.push(self.name().to_string());
+                    false
+                } else {
+                    println!("Called compile() while not in compilation state!");
+                    true
+                }
+            }
+        };
+        match err {
+            true => Abort.call(ctxt),
+            false => false,
+        }
+    }
+
     fn name(&self) -> &str {
         use Word::*;
         // Note: All names should be normalized to lower case.
@@ -198,7 +323,10 @@ impl Word {
             Abort => "abort",
             Words => "words",
             Colon => ":",
+            SemiColon => ";",
+            Interpret => "[",
             Compile => "]",
+            Literal => "literal",
             Comment => "(",
 
             Drop => "drop",
@@ -218,7 +346,7 @@ impl Word {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum State {
     Interpreting,
     WaitingForCommentClose(Box<Self>),
@@ -257,7 +385,10 @@ impl Context {
         install(Abort);
         install(Words);
         install(Colon);
+        install(SemiColon);
+        install(Interpret);
         install(Compile);
+        install(Literal);
         install(Comment);
 
         install(Drop);
@@ -282,7 +413,14 @@ impl Context {
             println!("No previous history.");
         }
         loop {
-            let readline = rl.readline("> ");
+            let prompt = match self.state {
+                State::Interpreting => "i> ",
+                State::WaitingForCommentClose(_) => "(> ",
+                State::WaitingForCompilationIdentifier => "?> ",
+                State::Compiling { .. } => "c> ",
+                State::CompilationPaused { .. } => "[> ",
+            };
+            let readline = rl.readline(prompt);
             match readline {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
@@ -313,6 +451,7 @@ impl Context {
                         State::Interpreting | State::CompilationPaused { .. } => {
                             self.interpret_word(s)
                         }
+                        State::Compiling { .. } => self.compile_word(s),
                         State::WaitingForCompilationIdentifier => {
                             self.state = State::Compiling {
                                 name: s.to_string(),
@@ -321,7 +460,6 @@ impl Context {
                             };
                             false
                         }
-                        State::Compiling { .. } => self.compile_word(s),
                         State::WaitingForCommentClose(prev) => {
                             if s.ends_with(")") {
                                 self.state = *prev.clone();
@@ -331,6 +469,7 @@ impl Context {
                     },
                 };
                 if err {
+                    self.state = State::Interpreting;
                     break;
                 }
             }
@@ -341,79 +480,28 @@ impl Context {
     }
 
     fn compile_word(&mut self, word: &str) -> bool {
-        match word {
-            "[" => {
-                match self.state {
+        match self.dictionary.get(word) {
+            Some(xt) => {
+                let xt2 = &xt.clone();
+                self.compile(xt2)
+            }
+            None => match u64::from_str(word) {
+                Ok(_) => match self.state {
                     State::Compiling {
-                        ref name,
-                        ref subwords,
-                        ref stack_count,
+                        ref mut subwords, ..
                     } => {
-                        self.state = State::CompilationPaused {
-                            name: name.clone(),
-                            subwords: subwords.clone(),
-                            stack_count: *stack_count,
-                        }
+                        subwords.push(word.to_string());
+                        false
                     }
                     _ => {
-                        println!("Error: Encountered '[' outside of definition")
+                        println!("Unexpected state: {:?}", self.state);
+                        true
                     }
-                }
-
-                false
-            }
-            "literal" => match self.state {
-                State::Compiling {
-                    ref mut subwords, ..
-                } => match self.data_stack.pop() {
-                    Some(x) => {
-                        subwords.push(x.to_string());
-                        false
-                    }
-                    None => stack_underflow(),
                 },
-                _ => {
-                    println!("Error: 'literal' seen outside definition");
+                Err(_) => {
+                    println!("Unrecognized word '{}'", word);
                     true
                 }
-            },
-            ";" => match &self.state {
-                State::Compiling {
-                    name,
-                    subwords,
-                    stack_count,
-                } => {
-                    if self.dictionary.contains_key(name) {
-                        println!("Error: '{}' already defined", name);
-                        true
-                    } else if *stack_count != self.data_stack.len() {
-                        println!(
-                            "Error: Stack size changed during definition (was {}, now {})",
-                            stack_count,
-                            self.data_stack.len()
-                        );
-                        true
-                    } else {
-                        self.dictionary
-                            .insert(name.clone(), Word::Defined(name.clone(), subwords.clone()));
-                        false
-                    }
-                }
-                _ => {
-                    println!("Error: Definition ended in non-compilation state");
-                    false
-                }
-            },
-            _ => match self.state {
-                State::Compiling {
-                    ref mut subwords, ..
-                } => {
-                    // TODO Check that words exist
-                    // TODO Prevent recursion
-                    subwords.push(word.to_string());
-                    false
-                }
-                _ => unreachable!("Expected to be in compilation state"),
             },
         }
     }
@@ -444,5 +532,9 @@ impl Context {
 
     fn call(&mut self, xt: &Word) -> bool {
         xt.call(self)
+    }
+
+    fn compile(&mut self, xt: &Word) -> bool {
+        xt.compile(self)
     }
 }
