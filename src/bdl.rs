@@ -19,6 +19,9 @@ enum Word {
     Literal,
     Comment,
 
+    // Data types
+    Quote, // Starts and ends a string
+
     // Stack operations
     Drop,
     Pick,
@@ -128,6 +131,12 @@ impl Word {
             }
             Comment => {
                 ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
+                false
+            }
+
+            Quote => {
+                ctxt.state =
+                    State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
                 false
             }
 
@@ -288,10 +297,8 @@ impl Word {
                     true
                 }
             },
-            Comment => {
-                ctxt.state = WaitingForCommentClose(Box::new(ctxt.state.clone()));
-                false
-            }
+            Comment => self.call(ctxt),
+            Quote => self.call(ctxt),
             _ => {
                 if let Compiling {
                     ref mut subwords, ..
@@ -324,6 +331,8 @@ impl Word {
             Literal => "literal",
             Comment => "(",
 
+            Quote => "\"",
+
             Drop => "drop",
             Pick => "pick",
             Dup => "dup",
@@ -346,6 +355,7 @@ pub enum State {
     Interpreting,
     WaitingForCommentClose(Box<Self>),
     WaitingForCompilationIdentifier,
+    WaitingForStringClose(Box<Self>, String),
     Compiling {
         name: String,
         subwords: Vec<String>,
@@ -392,6 +402,8 @@ impl Context {
         install(Literal);
         install(Comment);
 
+        install(Quote);
+
         install(Drop);
         install(Pick);
         install(Dup);
@@ -418,6 +430,7 @@ impl Context {
                 State::Interpreting => "i> ",
                 State::WaitingForCommentClose(_) => "(> ",
                 State::WaitingForCompilationIdentifier => "?> ",
+                State::WaitingForStringClose(_, _) => "\"> ",
                 State::Compiling { .. } => "c> ",
                 State::CompilationPaused { .. } => "[> ",
             };
@@ -446,6 +459,7 @@ impl Context {
     fn interpret_line(&mut self, line: &str) -> bool {
         if !line.trim_start().starts_with("\\") {
             for word in line.split_whitespace().map(|s| s.to_lowercase()) {
+                // TODO Refactor this to return the next state, rather than an err flag
                 let err = match word.as_str() {
                     "bye" => return true,
                     s => match &self.state {
@@ -464,6 +478,20 @@ impl Context {
                         State::WaitingForCommentClose(prev) => {
                             if s.ends_with(")") {
                                 self.state = *prev.clone();
+                            }
+                            false
+                        }
+                        State::WaitingForStringClose(prev, s2) => {
+                            if s == Word::Quote.name() {
+                                self.data_stack.push(StackItem::String(s2.clone()));
+                                self.state = *prev.clone();
+                            } else {
+                                let mut s2 = s2.clone();
+                                if !s2.is_empty() {
+                                    s2.push(' ');
+                                }
+                                s2.push_str(s);
+                                self.state = State::WaitingForStringClose(prev.clone(), s2);
                             }
                             false
                         }
