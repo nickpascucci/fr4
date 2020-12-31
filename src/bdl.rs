@@ -2,6 +2,9 @@ use crate::model::Component;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -18,6 +21,7 @@ enum Word {
     Compile,
     Literal,
     Comment,
+    Include,
 
     // Data types
     Quote, // Starts and ends a string
@@ -133,6 +137,11 @@ impl Word {
                 ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
                 false
             }
+            Include => match ctxt.data_stack.pop() {
+                Some(StackItem::String(s)) => ctxt.interpret_file(&s),
+                Some(x) => type_error("String", &x),
+                None => stack_underflow(),
+            },
 
             Quote => {
                 ctxt.state =
@@ -330,6 +339,7 @@ impl Word {
             Compile => "]",
             Literal => "literal",
             Comment => "(",
+            Include => "include",
 
             Quote => "\"",
 
@@ -401,6 +411,7 @@ impl Context {
         install(Compile);
         install(Literal);
         install(Comment);
+        install(Include);
 
         install(Quote);
 
@@ -454,6 +465,32 @@ impl Context {
             }
         }
         rl.save_history("history.txt").unwrap();
+    }
+
+    fn interpret_file(&mut self, filename: &str) -> bool {
+        if let Ok(file) = File::open(filename) {
+            let mut buf_reader = BufReader::new(file);
+            let mut exit = false;
+            for l in buf_reader.lines() {
+                match l {
+                    Ok(line) => {
+                        exit = self.interpret_line(&line);
+                        if exit {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to read line: {:?}", e);
+                        exit = true;
+                        break;
+                    }
+                }
+            }
+            exit
+        } else {
+            println!("Failed to open file {}", filename);
+            true
+        }
     }
 
     fn interpret_line(&mut self, line: &str) -> bool {
