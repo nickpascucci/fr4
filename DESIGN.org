@@ -73,3 +73,23 @@ system to a minimum.
 - Basic stack manipulations: =dup=, =swap=, =drop=, =pick=
 - I/O: =.=, =.S=
 - Interpreter: =abort=, =words=
+
+* Differences from BoardForth
+
+- Well, first, it's not ANS Forth.
+- Components are defined in the model. Words are provided for defining them, including:
+  - =pad=
+  - =silk=
+  - =trace=
+  - =via=
+  - =group=
+- Components may have BOM entries down the line.
+- Forth code describes the model, it doesn't describe how to render it. Geometry
+  is important and goes in the description but the layer assignments and such
+  are fluid.
+- Geometry manipulations are more standardized and semantically cleaner:
+  - =translate=
+  - =rotate=
+  - =flip=
+  - =layer=
+- Units of measure support
