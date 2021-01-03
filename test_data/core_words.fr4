@@ -1,0 +1,28 @@
+( Test script that exercises the basic words. 
+
+  Currently this test only validates that these words run and that this is a
+  valid FR4 script, and not that the results are correct.
+)
+
+1 1 +
+
+dup
+swap
+over
+drop
+drop
+
+: a 5 * ;
+
+a .
+.s
+
+100 10 / .
+
+" This is a test. "
+
+" test_data/empty.fr4 " include
+
+: b [ 4 5 * ] literal / ;
+
+100 b

@@ -502,6 +502,7 @@ impl Context {
 
     fn interpret_line(&mut self, line: &str) -> bool {
         if !line.trim_start().starts_with("\\") {
+            // TODO Don't lower if the context is reading a string.
             for word in line.split_whitespace().map(|s| s.to_lowercase()) {
                 // TODO Refactor this to return the next state, rather than an err flag
                 let err = match word.as_str() {
