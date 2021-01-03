@@ -41,6 +41,7 @@ pub enum StackItem {
     Number(u64),
     String(String),
     Point(crate::model::Point),
+    Shape(crate::model::Shape),
 }
 
 #[derive(Clone)]
@@ -58,7 +59,8 @@ enum Word {
 
     // Data types
     Quote, // Starts and ends a string
-    Point, // Creates a Point object
+    Point,
+    Rect,
 
     // Stack operations
     Drop,
@@ -177,6 +179,24 @@ impl Word {
                     None => Err(Error::StackUnderflow),
                 },
                 Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
+                None => Err(Error::StackUnderflow),
+            },
+            Rect => match ctxt.data_stack.pop() {
+                Some(StackItem::Number(rot)) => match ctxt.data_stack.pop() {
+                    Some(StackItem::Point(xy2)) => match ctxt.data_stack.pop() {
+                        Some(StackItem::Point(xy1)) => {
+                            ctxt.data_stack.push(StackItem::Shape(
+                                crate::model::Shape::Rectangle { xy1, xy2, rot },
+                            ));
+                            Ok(())
+                        }
+                        Some(x) => Err(Error::TypeError("Point".to_string(), x.clone())),
+                        None => Err(Error::StackUnderflow),
+                    },
+                    Some(y) => Err(Error::TypeError("Point".to_string(), y.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
                 None => Err(Error::StackUnderflow),
             },
 
@@ -372,6 +392,7 @@ impl Word {
 
             Quote => "\"",
             Point => "point",
+            Rect => "rect",
 
             Drop => "drop",
             Pick => "pick",
@@ -439,6 +460,7 @@ impl Context {
 
         install(Quote);
         install(Point);
+        install(Rect);
 
         install(Drop);
         install(Pick);

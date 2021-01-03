@@ -15,6 +15,7 @@ pub struct Point {
 }
 
 // TODO Units of measure support.
+#[derive(Debug, Copy, Clone)]
 pub enum Shape {
     Rectangle { xy1: Point, xy2: Point, rot: u64 },
     // Circle { c: Point, r: u64 },
