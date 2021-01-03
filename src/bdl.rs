@@ -10,6 +10,31 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Unrecognized word '{0}'")]
+    UnrecognizedWord(String),
+    #[error("Word is already defined: '{0}'")]
+    AlreadyDefined(String),
+    #[error("Type error: expected '{0}' but got '{1:?}'")]
+    TypeError(String, StackItem),
+    #[error("Stack size changed during compilation (was {0}, now {1})")]
+    StackSizeChanged(usize, usize),
+    #[error("Stack underflow")]
+    StackUnderflow,
+    #[error("Aborted")]
+    Aborted,
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+    #[error("Input/output error")]
+    IoError(#[from] std::io::Error),
+    #[error("User exit")]
+    UserExit,
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
 enum Word {
@@ -44,18 +69,8 @@ enum Word {
     Defined(String, Vec<String>),
 }
 
-fn stack_underflow() -> bool {
-    println!("Stack underflow");
-    true
-}
-
-fn type_error(expected: &str, actual: &StackItem) -> bool {
-    println!("Type error: expected {}, got {:?}", expected, actual);
-    true
-}
-
 /// Call a binary operator on numeric types.
-fn call_binop<F>(ctxt: &mut Context, op: F) -> bool
+fn call_binop<F>(ctxt: &mut Context, op: F) -> Result<()>
 where
     F: Fn(u64, u64) -> u64,
 {
@@ -63,13 +78,13 @@ where
         Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
             Some(StackItem::Number(x)) => {
                 ctxt.data_stack.push(StackItem::Number(op(x, y)));
-                false
+                Ok(())
             }
-            Some(x) => type_error("Number", &x),
-            None => stack_underflow(),
+            Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+            None => Err(Error::StackUnderflow),
         },
-        Some(y) => type_error("Number", &y),
-        None => stack_underflow(),
+        Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
+        None => Err(Error::StackUnderflow),
     }
 }
 
@@ -78,40 +93,33 @@ impl Word {
     ///
     /// For predefined words the behavior varies. For user definitions, the word will execute each
     /// of its subwords in turn.
-    fn call(&self, ctxt: &mut Context) -> bool {
+    fn call(&self, ctxt: &mut Context) -> Result<()> {
         use Word::*;
 
         let err = match self {
-            Abort => {
-                ctxt.data_stack.clear();
-                ctxt.state = State::Interpreting;
-                println!("Aborted");
-                false
-            }
+            Abort => Err(Error::Aborted),
             Words => {
                 for w in ctxt.dictionary.keys() {
                     println!("{}", w);
                 }
-                false
+                Ok(())
             }
             Colon => match ctxt.state {
                 State::Interpreting => {
                     ctxt.state = State::WaitingForCompilationIdentifier;
-                    false
+                    Ok(())
                 }
-                _ => {
-                    println!("Error: Already in compilation state");
-                    true
-                }
+                _ => Err(Error::InvalidState(
+                    "Already in compilation state".to_string(),
+                )),
             },
-            SemiColon => {
-                println!("Error: Cannot end definition in state {:?}", ctxt.state);
-                true
-            }
-            Interpret => {
-                println!("Error: Already in interpretation state");
-                true
-            }
+            SemiColon => Err(Error::InvalidState(format!(
+                "Cannot end definition in state {:?}",
+                ctxt.state
+            ))),
+            Interpret => Err(Error::InvalidState(
+                "Error: Already in interpretation state".to_string(),
+            )),
             Compile => match &ctxt.state {
                 State::CompilationPaused {
                     name,
@@ -123,67 +131,62 @@ impl Word {
                         subwords: subwords.clone(),
                         stack_count: *stack_count,
                     };
-                    false
+                    Ok(())
                 }
-                _ => {
-                    println!("Error: Already in compilation state");
-                    true
-                }
+                _ => Err(Error::InvalidState(
+                    "Already in compilation state".to_string(),
+                )),
             },
-            Literal => {
-                println!("'Literal' seen outside of definition");
-                true
-            }
+            Literal => Err(Error::InvalidState(
+                "'Literal' seen outside of definition".to_string(),
+            )),
             Comment => {
                 ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
-                false
+                Ok(())
             }
             Include => match ctxt.data_stack.pop() {
                 Some(StackItem::String(s)) => match PathBuf::from_str(&s) {
                     Ok(pb) => ctxt.interpret_file(&pb),
-                    Err(e) => {
-                        println!("Error converting to path: {:?}", e);
-                        true
-                    }
+                    Err(_) => unreachable!(),
                 },
-                Some(x) => type_error("String", &x),
-                None => stack_underflow(),
+                Some(x) => Err(Error::TypeError("String".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
             },
 
             Quote => {
                 ctxt.state =
                     State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
-                false
+                Ok(())
             }
 
             Drop => match ctxt.data_stack.pop() {
-                Some(_) => false,
-                None => stack_underflow(),
+                Some(_) => Ok(()),
+                None => Err(Error::StackUnderflow),
             },
 
             Dup => match ctxt.data_stack.pop() {
                 Some(x) => {
                     ctxt.data_stack.push(x.clone());
                     ctxt.data_stack.push(x);
-                    false
+                    Ok(())
                 }
-                None => stack_underflow(),
+                None => Err(Error::StackUnderflow),
             },
             Swap => match ctxt.data_stack.pop() {
                 Some(y) => match ctxt.data_stack.pop() {
                     Some(x) => {
                         ctxt.data_stack.push(y);
                         ctxt.data_stack.push(x);
-                        false
+                        Ok(())
                     }
-                    None => stack_underflow(),
+                    None => Err(Error::StackUnderflow),
                 },
-                None => stack_underflow(),
+                None => Err(Error::StackUnderflow),
             },
             Pick => match ctxt.data_stack.pop() {
                 Some(StackItem::Number(i)) => {
                     if (i as usize) > ctxt.data_stack.len() {
-                        stack_underflow()
+                        Err(Error::StackUnderflow)
                     } else {
                         let idx = ctxt.data_stack.len() - i as usize;
                         let x = ctxt
@@ -192,22 +195,22 @@ impl Word {
                             .cloned()
                             .unwrap_or(StackItem::Number(0));
                         ctxt.data_stack.push(x);
-                        false
+                        Ok(())
                     }
                 }
-                Some(x) => type_error("Number", &x),
-                None => stack_underflow(),
+                Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
             },
             Show => {
                 ctxt.print_data_stack();
-                false
+                Ok(())
             }
             Display => match ctxt.data_stack.pop() {
                 Some(x) => {
                     println!("{:?}", x);
-                    false
+                    Ok(())
                 }
-                None => stack_underflow(),
+                None => Err(Error::StackUnderflow),
             },
 
             Add => call_binop(ctxt, std::ops::Add::add),
@@ -216,16 +219,18 @@ impl Word {
             Div => call_binop(ctxt, std::ops::Div::div),
             Defined(_, subwords) => {
                 for sw in subwords.iter() {
-                    if ctxt.interpret_word(sw) {
-                        return true;
-                    }
+                    ctxt.interpret_word(sw)?;
                 }
-                false
+                Ok(())
             }
         };
         match err {
-            true => Abort.call(ctxt),
-            false => false,
+            Err(_) => {
+                ctxt.data_stack.clear();
+                ctxt.state = State::Interpreting;
+                err
+            }
+            x => x,
         }
     }
 
@@ -234,16 +239,15 @@ impl Word {
     /// Most words simply append themselves to the current definition during compilation time. A few
     /// exceptions exist; these are known in the Forth lexicon as "immediate" words. FR4's dialect
     /// does not allow the user to define their own immediate words, as they are hard coded here.
-    fn compile(&self, ctxt: &mut Context) -> bool {
+    fn compile(&self, ctxt: &mut Context) -> Result<()> {
         use State::*;
         use Word::*;
 
-        let err = match self {
+        let res = match self {
             Abort => self.call(ctxt),
-            Colon => {
-                println!("Error: Already in compilation state");
-                true
-            }
+            Colon => Err(Error::InvalidState(
+                "Already in compilation state".to_string(),
+            )),
             SemiColon => {
                 if let State::Compiling {
                     ref name,
@@ -252,24 +256,20 @@ impl Word {
                 } = ctxt.state
                 {
                     if ctxt.dictionary.contains_key(name) {
-                        println!("Error: '{}' already defined", name);
-                        true
+                        Err(Error::AlreadyDefined(name.clone()))
                     } else if *stack_count != ctxt.data_stack.len() {
-                        println!(
-                            "Error: Stack size changed during definition (was {}, now {})",
-                            stack_count,
-                            ctxt.data_stack.len()
-                        );
-                        true
+                        Err(Error::StackSizeChanged(*stack_count, ctxt.data_stack.len()))
                     } else {
                         ctxt.dictionary
                             .insert(name.clone(), Word::Defined(name.clone(), subwords.clone()));
                         ctxt.state = State::Interpreting;
-                        false
+                        Ok(())
                     }
                 } else {
-                    println!("Error: Unexpected state {:?}", ctxt.state);
-                    true
+                    Err(Error::InvalidState(format!(
+                        "Saw end of definition in state {:?}",
+                        ctxt.state
+                    )))
                 }
             }
             Interpret => match &ctxt.state {
@@ -283,35 +283,31 @@ impl Word {
                         subwords: subwords.clone(),
                         stack_count: *stack_count,
                     };
-                    false
+                    Ok(())
                 }
-                _ => {
-                    println!("Error: Unexpected state {:?}", ctxt.state);
-                    true
-                }
+                _ => Err(Error::InvalidState(format!(
+                    "Unexpected state {:?}",
+                    ctxt.state
+                ))),
             },
-            Compile => {
-                println!("Error: Already in compilation state");
-                true
-            }
+            Compile => Err(Error::InvalidState(
+                "Already in compilation state".to_string(),
+            )),
             Literal => match ctxt.state {
                 State::Compiling {
                     ref mut subwords, ..
                 } => match ctxt.data_stack.pop() {
                     Some(StackItem::Number(x)) => {
                         subwords.push(x.to_string());
-                        false
+                        Ok(())
                     }
-                    Some(x) => {
-                        println!("Can't create literal from stack item {:?}", x);
-                        true
-                    }
-                    None => stack_underflow(),
+                    Some(x) => Err(Error::TypeError("Number".to_string(), x)),
+                    None => Err(Error::StackUnderflow),
                 },
-                _ => {
-                    println!("Error: unexpected state {:?}", ctxt.state);
-                    true
-                }
+                _ => Err(Error::InvalidState(format!(
+                    "Unexpected state {:?}",
+                    ctxt.state
+                ))),
             },
             Comment => self.call(ctxt),
             Quote => self.call(ctxt),
@@ -321,16 +317,21 @@ impl Word {
                 } = ctxt.state
                 {
                     subwords.push(self.name().to_string());
-                    false
+                    Ok(())
                 } else {
-                    println!("Called compile() while not in compilation state!");
-                    true
+                    Err(Error::InvalidState(
+                        "Called compile() while not in compilation state!".to_string(),
+                    ))
                 }
             }
         };
-        match err {
-            true => Abort.call(ctxt),
-            false => false,
+        match res {
+            Err(_) => {
+                // TODO This is kind of hacky and should be cleaned up.
+                let _ = Abort.call(ctxt);
+                res
+            }
+            Ok(_) => res,
         }
     }
 
@@ -456,8 +457,11 @@ impl Context {
             match readline {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
-                    if self.interpret_line(line.as_str()) {
-                        break;
+                    match self.interpret_line(line.as_str()) {
+                        Err(Error::UserExit) => {
+                            break;
+                        }
+                        _ => {}
                     }
                 }
                 Err(ReadlineError::Interrupted) => {
@@ -474,86 +478,72 @@ impl Context {
         rl.save_history("history.txt").unwrap();
     }
 
-    pub fn interpret_file(&mut self, filename: &PathBuf) -> bool {
-        if let Ok(file) = File::open(filename) {
-            let buf_reader = BufReader::new(file);
-            let mut exit = false;
-            for l in buf_reader.lines() {
-                match l {
-                    Ok(line) => {
-                        exit = self.interpret_line(&line);
-                        if exit {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        println!("Failed to read line: {:?}", e);
-                        exit = true;
-                        break;
-                    }
+    pub fn interpret_file(&mut self, filename: &PathBuf) -> Result<()> {
+        let file = File::open(filename)?;
+        let buf_reader = BufReader::new(file);
+        for l in buf_reader.lines() {
+            match l {
+                Ok(line) => {
+                    self.interpret_line(&line)?;
+                }
+                Err(e) => {
+                    return Err(Error::from(e));
                 }
             }
-            exit
-        } else {
-            println!("Failed to open file {:?}", filename);
-            true
         }
+        Ok(())
     }
 
-    fn interpret_line(&mut self, line: &str) -> bool {
-        if !line.trim_start().starts_with("\\") {
-            // TODO Don't lower if the context is reading a string.
-            for word in line.split_whitespace().map(|s| s.to_lowercase()) {
-                // TODO Refactor this to return the next state, rather than an err flag
-                let err = match word.as_str() {
-                    "bye" => return true,
-                    s => match &self.state {
-                        State::Interpreting | State::CompilationPaused { .. } => {
-                            self.interpret_word(s)
+    fn interpret_line(&mut self, line: &str) -> Result<()> {
+        // TODO Don't lower if the context is reading a string.
+        for word in line.split_whitespace().map(|s| s.to_lowercase()) {
+            // TODO Refactor this to return the next state, rather than an err flag
+            let res = match word.as_str() {
+                "bye" => return Err(Error::UserExit),
+                s => match &self.state {
+                    State::Interpreting | State::CompilationPaused { .. } => self.interpret_word(s),
+                    State::Compiling { .. } => self.compile_word(s),
+                    State::WaitingForCompilationIdentifier => {
+                        self.state = State::Compiling {
+                            name: s.to_string(),
+                            subwords: Vec::new(),
+                            stack_count: self.data_stack.len(),
+                        };
+                        Ok(())
+                    }
+                    State::WaitingForCommentClose(prev) => {
+                        if s.ends_with(")") {
+                            self.state = *prev.clone();
                         }
-                        State::Compiling { .. } => self.compile_word(s),
-                        State::WaitingForCompilationIdentifier => {
-                            self.state = State::Compiling {
-                                name: s.to_string(),
-                                subwords: Vec::new(),
-                                stack_count: self.data_stack.len(),
-                            };
-                            false
-                        }
-                        State::WaitingForCommentClose(prev) => {
-                            if s.ends_with(")") {
-                                self.state = *prev.clone();
+                        Ok(())
+                    }
+                    State::WaitingForStringClose(prev, s2) => {
+                        if s == Word::Quote.name() {
+                            self.data_stack.push(StackItem::String(s2.clone()));
+                            self.state = *prev.clone();
+                        } else {
+                            let mut s2 = s2.clone();
+                            if !s2.is_empty() {
+                                s2.push(' ');
                             }
-                            false
+                            s2.push_str(s);
+                            self.state = State::WaitingForStringClose(prev.clone(), s2);
                         }
-                        State::WaitingForStringClose(prev, s2) => {
-                            if s == Word::Quote.name() {
-                                self.data_stack.push(StackItem::String(s2.clone()));
-                                self.state = *prev.clone();
-                            } else {
-                                let mut s2 = s2.clone();
-                                if !s2.is_empty() {
-                                    s2.push(' ');
-                                }
-                                s2.push_str(s);
-                                self.state = State::WaitingForStringClose(prev.clone(), s2);
-                            }
-                            false
-                        }
-                    },
-                };
-                if err {
-                    self.state = State::Interpreting;
-                    break;
-                }
+                        Ok(())
+                    }
+                },
+            };
+            if res.is_err() {
+                self.state = State::Interpreting;
+                return res;
             }
         }
         println!("ok");
         self.print_data_stack();
-        false
+        Ok(())
     }
 
-    fn compile_word(&mut self, word: &str) -> bool {
+    fn compile_word(&mut self, word: &str) -> Result<()> {
         match self.dictionary.get(word) {
             Some(xt) => {
                 let xt2 = &xt.clone();
@@ -565,22 +555,19 @@ impl Context {
                         ref mut subwords, ..
                     } => {
                         subwords.push(word.to_string());
-                        false
+                        Ok(())
                     }
-                    _ => {
-                        println!("Unexpected state: {:?}", self.state);
-                        true
-                    }
+                    _ => Err(Error::InvalidState(format!(
+                        "Unexpected state {:?}",
+                        self.state
+                    ))),
                 },
-                Err(_) => {
-                    println!("Unrecognized word '{}'", word);
-                    true
-                }
+                Err(_) => Err(Error::UnrecognizedWord(word.to_string())),
             },
         }
     }
 
-    fn interpret_word(&mut self, word: &str) -> bool {
+    fn interpret_word(&mut self, word: &str) -> Result<()> {
         match self.dictionary.get(word) {
             Some(xt) => {
                 let xt2 = &xt.clone();
@@ -589,12 +576,9 @@ impl Context {
             None => match u64::from_str(word) {
                 Ok(x) => {
                     self.data_stack.push(StackItem::Number(x));
-                    false
+                    Ok(())
                 }
-                Err(_) => {
-                    println!("Unrecognized word '{}'", word);
-                    true
-                }
+                Err(_) => Err(Error::UnrecognizedWord(word.to_string())),
             },
         }
     }
@@ -604,11 +588,11 @@ impl Context {
         println!()
     }
 
-    fn call(&mut self, xt: &Word) -> bool {
+    fn call(&mut self, xt: &Word) -> Result<()> {
         xt.call(self)
     }
 
-    fn compile(&mut self, xt: &Word) -> bool {
+    fn compile(&mut self, xt: &Word) -> Result<()> {
         xt.compile(self)
     }
 }

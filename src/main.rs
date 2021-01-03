@@ -65,12 +65,12 @@ fn main() {
             ctxt.interpret_file(&path)
         } else {
             ctxt.interpret();
-            false
+            Ok(())
         };
         tx.send(err).unwrap();
     });
 
-    let res = if args.headless {
+    let res: Result<_, _> = if args.headless {
         loop {
             if let Ok(e) = rx.try_recv() {
                 // Forth interpreter has exited, end the program.
@@ -94,7 +94,6 @@ fn main() {
         let mut events = Events::new(EventSettings::new());
 
         loop {
-
             if let Some(e) = events.next(&mut window) {
                 if let Some(args) = e.render_args() {
                     app.render(&args);
@@ -104,7 +103,7 @@ fn main() {
                     app.update(&args);
                 }
             } else {
-                break false;
+                break Ok(());
             }
 
             if let Ok(e) = rx.try_recv() {
@@ -114,8 +113,9 @@ fn main() {
         }
     };
 
-    if res {
+    if !res.is_ok() {
         // TODO provide more informative error codes
+        println!("Error: {:?}", res);
         std::process::exit(1);
     }
 }
