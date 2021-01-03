@@ -8,9 +8,10 @@ const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
+#[derive(Debug, Copy, Clone)]
 pub struct Point {
-    x: f64,
-    y: f64,
+    pub x: u64,
+    pub y: u64,
 }
 
 // TODO Units of measure support.
@@ -25,7 +26,12 @@ impl Shape {
         use graphics::*;
         match self {
             Shape::Rectangle { xy1, xy2, rot } => {
-                let rect = rectangle::rectangle_by_corners(xy1.x, xy1.y, xy2.x, xy2.y);
+                let rect = rectangle::rectangle_by_corners(
+                    xy1.x as f64,
+                    xy1.y as f64,
+                    xy2.x as f64,
+                    xy2.y as f64,
+                );
                 let transform = transform.rot_rad(*rot as f64);
                 rectangle(color, rect, transform, gl);
             }
@@ -50,7 +56,7 @@ impl Component {
                     s.render(GREEN, c.transform, gl);
                 }
                 Pad(p, s) => {
-                    let transform = c.transform.trans(p.x, p.y);
+                    let transform = c.transform.trans(p.x as f64, p.y as f64);
                     s.render(RED, transform, gl);
                 }
                 Group(cs) => {

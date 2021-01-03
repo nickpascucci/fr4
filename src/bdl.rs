@@ -36,6 +36,13 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, Clone)]
+pub enum StackItem {
+    Number(u64),
+    String(String),
+    Point(crate::model::Point),
+}
+
 #[derive(Clone)]
 enum Word {
     // Interpreter
@@ -51,6 +58,7 @@ enum Word {
 
     // Data types
     Quote, // Starts and ends a string
+    Point, // Creates a Point object
 
     // Stack operations
     Drop,
@@ -158,6 +166,19 @@ impl Word {
                     State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
                 Ok(())
             }
+            Point => match ctxt.data_stack.pop() {
+                Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
+                    Some(StackItem::Number(x)) => {
+                        ctxt.data_stack
+                            .push(StackItem::Point(crate::model::Point { x, y }));
+                        Ok(())
+                    }
+                    Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
+                None => Err(Error::StackUnderflow),
+            },
 
             Drop => match ctxt.data_stack.pop() {
                 Some(_) => Ok(()),
@@ -350,6 +371,7 @@ impl Word {
             Include => "include",
 
             Quote => "\"",
+            Point => "point",
 
             Drop => "drop",
             Pick => "pick",
@@ -386,12 +408,6 @@ pub enum State {
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum StackItem {
-    Number(u64),
-    String(String),
-}
-
 pub struct Context {
     data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
@@ -422,6 +438,7 @@ impl Context {
         install(Include);
 
         install(Quote);
+        install(Point);
 
         install(Drop);
         install(Pick);
