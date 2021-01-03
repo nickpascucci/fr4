@@ -16,7 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Install SDL2
+      run: sudo apt-get install libsdl2-dev
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
+    - name: Run unit tests
       run: cargo test --verbose
+    - name: Run integration tests
+      run: cargo run -- --headless test_data/core_words.fr4
+      
