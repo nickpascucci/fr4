@@ -4,6 +4,7 @@ use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use sdl2_window::Sdl2Window as Window;
+use std::path::PathBuf;
 use std::sync::{mpsc::channel, Arc, RwLock};
 use std::thread;
 
@@ -16,6 +17,10 @@ struct Args {
     /// don't show a graphical preview
     #[argh(switch)]
     headless: bool,
+
+    /// script file to execute
+    #[argh(positional)]
+    script: Option<PathBuf>,
 }
 
 pub struct App {
@@ -52,10 +57,15 @@ fn main() {
     // Spin up the Forth interpreter thread
     let bdl_ref = app.model.clone();
     let (tx, rx) = channel();
+    let script = args.script;
 
     thread::spawn(move || {
         let mut ctxt = bdl::Context::new(bdl_ref);
-        ctxt.interpret();
+        if let Some(path) = script {
+            ctxt.interpret_file(&path);
+        } else {
+            ctxt.interpret();
+        }
         tx.send(true).unwrap();
     });
 

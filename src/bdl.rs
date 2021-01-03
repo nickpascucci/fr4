@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -138,7 +139,13 @@ impl Word {
                 false
             }
             Include => match ctxt.data_stack.pop() {
-                Some(StackItem::String(s)) => ctxt.interpret_file(&s),
+                Some(StackItem::String(s)) => match PathBuf::from_str(&s) {
+                    Ok(pb) => ctxt.interpret_file(&pb),
+                    Err(e) => {
+                        println!("Error converting to path: {:?}", e);
+                        true
+                    }
+                },
                 Some(x) => type_error("String", &x),
                 None => stack_underflow(),
             },
@@ -467,7 +474,7 @@ impl Context {
         rl.save_history("history.txt").unwrap();
     }
 
-    fn interpret_file(&mut self, filename: &str) -> bool {
+    pub fn interpret_file(&mut self, filename: &PathBuf) -> bool {
         if let Ok(file) = File::open(filename) {
             let buf_reader = BufReader::new(file);
             let mut exit = false;
@@ -488,7 +495,7 @@ impl Context {
             }
             exit
         } else {
-            println!("Failed to open file {}", filename);
+            println!("Failed to open file {:?}", filename);
             true
         }
     }
