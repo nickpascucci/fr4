@@ -17,6 +17,7 @@ categories = ["science", "science::robotics"]
 maintenance = { status = "experimental" }
 
 [dependencies]
+argh = "0.1.4"
 rustyline = "7.0.0"
 pistoncore-sdl2_window = "0.66.0"
 piston = "0.52.1"

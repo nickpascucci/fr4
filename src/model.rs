@@ -1,5 +1,6 @@
+//! Circuit board model types and functions.
+
 use graphics::{math, types};
-/// Circuit board model types and functions.
 use opengl_graphics::GlGraphics;
 use piston::input::RenderArgs;
 

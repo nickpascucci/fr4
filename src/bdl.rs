@@ -1,3 +1,5 @@
+//! Board Description Language
+
 use crate::model::Component;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -7,8 +9,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-
-/// Board Description Language
 
 #[derive(Clone)]
 enum Word {
@@ -469,7 +469,7 @@ impl Context {
 
     fn interpret_file(&mut self, filename: &str) -> bool {
         if let Ok(file) = File::open(filename) {
-            let mut buf_reader = BufReader::new(file);
+            let buf_reader = BufReader::new(file);
             let mut exit = false;
             for l in buf_reader.lines() {
                 match l {
