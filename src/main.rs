@@ -61,19 +61,20 @@ fn main() {
 
     thread::spawn(move || {
         let mut ctxt = bdl::Context::new(bdl_ref);
-        if let Some(path) = script {
-            ctxt.interpret_file(&path);
+        let err = if let Some(path) = script {
+            ctxt.interpret_file(&path)
         } else {
             ctxt.interpret();
-        }
-        tx.send(true).unwrap();
+            false
+        };
+        tx.send(err).unwrap();
     });
 
-    if args.headless {
+    let res = if args.headless {
         loop {
-            if let Ok(_) = rx.try_recv() {
+            if let Ok(e) = rx.try_recv() {
                 // Forth interpreter has exited, end the program.
-                break;
+                break e;
             }
         }
     } else {
@@ -92,19 +93,29 @@ fn main() {
 
         let mut events = Events::new(EventSettings::new());
 
-        while let Some(e) = events.next(&mut window) {
-            if let Some(args) = e.render_args() {
-                app.render(&args);
+        loop {
+
+            if let Some(e) = events.next(&mut window) {
+                if let Some(args) = e.render_args() {
+                    app.render(&args);
+                }
+
+                if let Some(args) = e.update_args() {
+                    app.update(&args);
+                }
+            } else {
+                break false;
             }
 
-            if let Some(args) = e.update_args() {
-                app.update(&args);
-            }
-
-            if let Ok(_) = rx.try_recv() {
+            if let Ok(e) = rx.try_recv() {
                 // Forth interpreter has exited, end the program.
-                break;
+                break e;
             }
         }
+    };
+
+    if res {
+        // TODO provide more informative error codes
+        std::process::exit(1);
     }
 }
