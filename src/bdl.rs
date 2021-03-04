@@ -1,8 +1,7 @@
 //! Board Description Language
 
-use crate::model::Component;
-use rustyline::error::ReadlineError;
-use rustyline::Editor;
+use crate::model::{Component, Point, Shape};
+use rustyline::{error::ReadlineError, Editor};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -32,6 +31,9 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     #[error("User exit")]
     UserExit,
+    #[error("The word {0} is not implemented yet!")]
+    #[allow(dead_code)]
+    NotImplemented(String),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -40,8 +42,15 @@ type Result<T> = std::result::Result<T, Error>;
 pub enum StackItem {
     Number(u64),
     String(String),
-    Point(crate::model::Point),
-    Shape(crate::model::Shape),
+    Point(Point),
+    Shape(Shape),
+    Component(Component),
+    Address(Address),
+}
+
+#[derive(Debug, Clone)]
+pub enum Address {
+    Model,
 }
 
 #[derive(Clone)]
@@ -61,6 +70,8 @@ enum Word {
     Quote, // Starts and ends a string
     Point,
     Rect,
+    Board,
+    Pad,
 
     // Stack operations
     Drop,
@@ -75,6 +86,11 @@ enum Word {
     Sub,
     Mul,
     Div,
+
+    // Memory
+    Store,
+    Load,
+    Model, // Push the model address onto the stack
 
     Defined(String, Vec<String>),
 }
@@ -199,6 +215,24 @@ impl Word {
                 Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
                 None => Err(Error::StackUnderflow),
             },
+            Board => match ctxt.data_stack.pop() {
+                Some(StackItem::Shape(shape)) => {
+                    ctxt.data_stack
+                        .push(StackItem::Component(Component::Board(shape)));
+                    Ok(())
+                }
+                Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
+            },
+            Pad => match ctxt.data_stack.pop() {
+                Some(StackItem::Shape(shape)) => {
+                    ctxt.data_stack
+                        .push(StackItem::Component(Component::Pad(shape)));
+                    Ok(())
+                }
+                Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
+            },
 
             Drop => match ctxt.data_stack.pop() {
                 Some(_) => Ok(()),
@@ -258,6 +292,39 @@ impl Word {
             Sub => call_binop(ctxt, std::ops::Sub::sub),
             Mul => call_binop(ctxt, std::ops::Mul::mul),
             Div => call_binop(ctxt, std::ops::Div::div),
+
+            Store => match ctxt.data_stack.pop() {
+                Some(StackItem::Address(addr)) => match addr {
+                    Address::Model => match ctxt.data_stack.pop() {
+                        Some(StackItem::Component(cmpt)) => {
+                            let mut model_ref = ctxt.model.write().unwrap();
+                            *model_ref = Box::new(cmpt);
+                            Ok(())
+                        }
+                        Some(x) => Err(Error::TypeError("Component".to_string(), x.clone())),
+                        None => Err(Error::StackUnderflow),
+                    },
+                },
+                Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
+            },
+            Load => match ctxt.data_stack.pop() {
+                Some(StackItem::Address(addr)) => match addr {
+                    Address::Model => {
+                        let model_ref = ctxt.model.read().unwrap();
+                        ctxt.data_stack
+                            .push(StackItem::Component(*model_ref.clone()));
+                        Ok(())
+                    }
+                },
+                Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
+                None => Err(Error::StackUnderflow),
+            },
+            Model => {
+                ctxt.data_stack.push(StackItem::Address(Address::Model));
+                Ok(())
+            }
+
             Defined(_, subwords) => {
                 for sw in subwords.iter() {
                     ctxt.interpret_word(sw)?;
@@ -393,6 +460,8 @@ impl Word {
             Quote => "\"",
             Point => "point",
             Rect => "rect",
+            Board => "board",
+            Pad => "pad",
 
             Drop => "drop",
             Pick => "pick",
@@ -405,6 +474,10 @@ impl Word {
             Sub => "-",
             Mul => "*",
             Div => "/",
+
+            Store => "!",
+            Load => "@",
+            Model => "model",
 
             Defined(n, _) => n,
         }
@@ -433,11 +506,11 @@ pub struct Context {
     data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
     state: State,
-    model: Arc<RwLock<Component>>,
+    model: Arc<RwLock<Box<Component>>>, // TODO Update model
 }
 
 impl Context {
-    pub fn new(model: Arc<RwLock<Component>>) -> Self {
+    pub fn new(model: Arc<RwLock<Box<Component>>>) -> Self {
         use Word::*;
         let mut ctxt = Self {
             data_stack: Vec::new(),
@@ -461,6 +534,8 @@ impl Context {
         install(Quote);
         install(Point);
         install(Rect);
+        install(Board);
+        install(Pad);
 
         install(Drop);
         install(Pick);
@@ -474,10 +549,14 @@ impl Context {
         install(Mul);
         install(Div);
 
+        install(Store);
+        install(Load);
+        install(Model);
+
         ctxt
     }
 
-    pub fn interpret(&mut self) {
+    pub fn interpret(&mut self) -> Result<()> {
         // `()` can be used when no completer is required
         let mut rl = Editor::<()>::new();
         if rl.load_history("history.txt").is_err() {
@@ -497,11 +576,14 @@ impl Context {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
                     match self.interpret_line(line.as_str()) {
+                        Ok(_) => {}
                         Err(Error::UserExit) => {
                             break;
                         }
-                        _ => {}
-                    }
+                        Err(err) => {
+                            println!("Error: {}", err);
+                        }
+                    };
                 }
                 Err(ReadlineError::Interrupted) => {
                     break;
@@ -510,11 +592,12 @@ impl Context {
                     break;
                 }
                 Err(err) => {
-                    println!("Error: {:?}", err);
+                    println!("Readline Error: {}", err);
                 }
             }
         }
         rl.save_history("history.txt").unwrap();
+        Ok(())
     }
 
     pub fn interpret_file(&mut self, filename: &PathBuf) -> Result<()> {

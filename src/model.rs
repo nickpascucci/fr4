@@ -4,7 +4,6 @@ use graphics::{math, types};
 use opengl_graphics::GlGraphics;
 use piston::input::RenderArgs;
 
-const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
@@ -40,25 +39,23 @@ impl Shape {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Component {
     Board(Shape),
-    Pad(Point, Shape),
+    Pad(Shape),
     Group(Vec<Component>), // Do groups need transformation data to draw?
 }
 
 impl Component {
     pub fn render(&self, gl: &mut GlGraphics, args: &RenderArgs) {
-        use graphics::*;
-
         gl.draw(args.viewport(), |c, gl| {
             use Component::*;
             match self {
                 Board(s) => {
                     s.render(GREEN, c.transform, gl);
                 }
-                Pad(p, s) => {
-                    let transform = c.transform.trans(p.x as f64, p.y as f64);
-                    s.render(RED, transform, gl);
+                Pad(s) => {
+                    s.render(RED, c.transform, gl);
                 }
                 Group(cs) => {
                     for c in cs {

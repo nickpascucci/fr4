@@ -279,18 +279,18 @@ dependencies = [
 
 [[package]]
 name = "gl"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7d8c8e25e8ed44d4813809205090162723a866fb4be3a9d8bb983c9a0bf98f1"
+checksum = "4b411c7e0bfc599e3606412c190e786b5bb48cf00073e1635f9bb6f88fe7d84a"
 dependencies = [
  "gl_generator",
 ]
 
 [[package]]
 name = "gl_generator"
-version = "0.10.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ffaf173cf76c73a73e080366bf556b4776ece104b06961766ff11449f38604"
+checksum = "ca98bbde17256e02d17336a6bdb5a50f7d0ccacee502e191d3e3d0ec2f96f84a"
 dependencies = [
  "khronos_api 3.1.0",
  "log",
@@ -550,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "piston2d-opengl_graphics"
-version = "0.76.0"
+version = "0.77.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f8be70b6b0ca8682043429bd75c4bbeee3fdca5c3a7475c6f7e474c13fd7c1"
+checksum = "5f202e23c2a2cb9487b3ae4d5bbcc430db57577439de307e15f7d44f8ace1df7"
 dependencies = [
  "fnv",
  "gl",
@@ -589,9 +589,9 @@ dependencies = [
 
 [[package]]
 name = "pistoncore-sdl2_window"
-version = "0.66.0"
+version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28bc705a418a045bfa791e5e084be72696ac83c07d3d7715533ea6152baf96ee"
+checksum = "b55e158730e7fb4dd4de6ce4c3856ec1f9afae2be0ae24daf446697b661ac168"
 dependencies = [
  "gl",
  "pistoncore-input",
