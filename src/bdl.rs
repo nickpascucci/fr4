@@ -298,7 +298,7 @@ impl Word {
                     Address::Model => match ctxt.data_stack.pop() {
                         Some(StackItem::Component(cmpt)) => {
                             let mut model_ref = ctxt.model.write().unwrap();
-                            *model_ref = Box::new(cmpt);
+                            *model_ref = cmpt;
                             Ok(())
                         }
                         Some(x) => Err(Error::TypeError("Component".to_string(), x.clone())),
@@ -313,7 +313,7 @@ impl Word {
                     Address::Model => {
                         let model_ref = ctxt.model.read().unwrap();
                         ctxt.data_stack
-                            .push(StackItem::Component(*model_ref.clone()));
+                            .push(StackItem::Component(model_ref.clone()));
                         Ok(())
                     }
                 },
@@ -506,11 +506,11 @@ pub struct Context {
     data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
     state: State,
-    model: Arc<RwLock<Box<Component>>>, // TODO Update model
+    model: Arc<RwLock<Component>>,
 }
 
 impl Context {
-    pub fn new(model: Arc<RwLock<Box<Component>>>) -> Self {
+    pub fn new(model: Arc<RwLock<Component>>) -> Self {
         use Word::*;
         let mut ctxt = Self {
             data_stack: Vec::new(),

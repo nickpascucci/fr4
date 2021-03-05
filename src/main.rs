@@ -61,16 +61,15 @@ fn main() {
 
     thread::spawn(move || {
         let mut ctxt = bdl::Context::new(bdl_ref);
-        let err = if let Some(path) = script {
-            ctxt.interpret_file(&path)
+        let res = if let Some(path) = script {
+            ctxt.interpret_file(&path).and_then(|_| ctxt.interpret())
         } else {
-            ctxt.interpret();
-            Ok(())
+            ctxt.interpret()
         };
-        tx.send(err).unwrap();
+        tx.send(res).unwrap();
     });
 
-    let res: Result<_, _> = if args.headless {
+    let res: Result<(), bdl::Error> = if args.headless {
         loop {
             if let Ok(e) = rx.try_recv() {
                 // Forth interpreter has exited, end the program.
@@ -78,16 +77,18 @@ fn main() {
             }
         }
     } else {
-        // let opengl = OpenGL::V3_2;
-        let opengl = OpenGL::V2_1;
+        // TODO Add compiler target macros to set this based on the operating system
+        // let opengl = OpenGL::V2_1; // Works on Raspberry Pi
+        let opengl = OpenGL::V3_2; // Works on MacOS
 
-        let mut window: Window = WindowSettings::new("FR4", (640, 480))
-            .graphics_api(opengl)
-            .fullscreen(false)
-            .vsync(true)
-            .exit_on_esc(true)
-            .build()
-            .unwrap();
+        let mut window: Window = Window::new(
+            &WindowSettings::new("FR4", (640, 480))
+                .graphics_api(opengl)
+                .fullscreen(false)
+                .vsync(true)
+                .exit_on_esc(true),
+        )
+        .unwrap();
 
         app.gl = Some(GlGraphics::new(opengl));
 
