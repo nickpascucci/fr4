@@ -9,7 +9,7 @@
 
 dup
 swap
-2 pick
+1 pick
 drop
 drop
 
