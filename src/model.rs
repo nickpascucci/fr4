@@ -7,7 +7,7 @@ use piston::input::RenderArgs;
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Point {
     pub x: u64,
     pub y: u64,
@@ -16,7 +16,7 @@ pub struct Point {
 // print all of their coordinates and details unless asked.
 
 // TODO Units of measure support.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Shape {
     Rectangle { xy1: Point, xy2: Point },
     // Circle { c: Point, r: u64 },
@@ -41,7 +41,7 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Component {
     Board(Shape),
     Pad(Shape),

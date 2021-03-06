@@ -11,7 +11,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum Error {
     #[error("Unrecognized word '{0}'")]
     UnrecognizedWord(String),
@@ -28,7 +28,7 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(String),
     #[error("Input/output error")]
-    IoError(#[from] std::io::Error),
+    IoError(String),
     #[error("User exit")]
     UserExit,
     #[error("The word {0} is not implemented yet!")]
@@ -38,7 +38,7 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StackItem {
     Number(u64),
     String(String),
@@ -48,7 +48,7 @@ pub enum StackItem {
     Address(Address),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Address {
     Model,
 }
@@ -110,15 +110,15 @@ where
     F: Fn(u64, u64) -> u64,
 {
     match ctxt.data_stack.pop() {
-        Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
-            Some(StackItem::Number(x)) => {
+        Some(StackItem::Number(x)) => match ctxt.data_stack.pop() {
+            Some(StackItem::Number(y)) => {
                 ctxt.data_stack.push(StackItem::Number(op(x, y)));
                 Ok(())
             }
-            Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+            Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
             None => Err(Error::StackUnderflow),
         },
-        Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
+        Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
         None => Err(Error::StackUnderflow),
     }
 }
@@ -271,10 +271,10 @@ impl Word {
                 },
                 Pick => match ctxt.data_stack.pop() {
                     Some(StackItem::Number(i)) => {
-                        if (i as usize) > ctxt.data_stack.len() {
+                        if (i as usize) >= ctxt.data_stack.len() {
                             Err(Error::StackUnderflow)
                         } else {
-                            let idx = ctxt.data_stack.len() - i as usize;
+                            let idx = ctxt.data_stack.len() - 1 - i as usize;
                             let x = ctxt
                                 .data_stack
                                 .get(idx)
@@ -635,7 +635,7 @@ impl Context {
     }
 
     pub fn interpret_file(&mut self, filename: &PathBuf) -> Result<()> {
-        let file = File::open(filename)?;
+        let file = File::open(filename).map_err(|e| Error::IoError(e.to_string()))?;
         let buf_reader = BufReader::new(file);
         for l in buf_reader.lines() {
             match l {
@@ -643,7 +643,7 @@ impl Context {
                     self.interpret_line(&line)?;
                 }
                 Err(e) => {
-                    return Err(Error::from(e));
+                    return Err(Error::IoError(e.to_string()));
                 }
             }
         }
@@ -750,5 +750,127 @@ impl Context {
 
     fn compile(&mut self, xt: &Word) -> Result<()> {
         xt.compile(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_context() -> Context {
+        let model = Arc::new(RwLock::new(Component::Group(vec![])));
+        Context::new(model)
+    }
+
+    #[test]
+    fn swap() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 2 swap")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn dup() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 dup")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn drop() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 2 drop")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn pick() -> Result<()> {
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("1 2 3 1 pick")?;
+            assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("1 2 3 0 pick")?;
+            assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            assert_eq!(Err(Error::StackUnderflow), ctxt.interpret_line("0 pick"));
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            assert_eq!(Err(Error::StackUnderflow), ctxt.interpret_line("1 2 3 3 pick"));
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("1 2 3 2 pick")?;
+            assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+            assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn add() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 2 +")?;
+        assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn sub() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 2 -")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn mul() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 2 *")?;
+        assert_eq!(Some(StackItem::Number(4)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn div() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 6 /")?;
+        assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
     }
 }
