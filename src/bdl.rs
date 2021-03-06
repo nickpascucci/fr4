@@ -104,23 +104,47 @@ enum Word {
     Defined(String, Vec<String>),
 }
 
+macro_rules! with_stack {
+    // Base case: matches an untyped singleton, such as "x".
+	($ctxt:ident, [ $item:ident ] do $e:expr) => {
+		match $ctxt.data_stack.pop() {
+            Some($item) => {
+                $e
+            },
+            None => Err(Error::StackUnderflow),
+        }
+	};
+    // Inductive case: matches a list of untyped values, such as [x, y].
+    ($ctxt:ident, [ $head:ident, $($tail:ident),+ ] do $e:expr) => {
+        with_stack!($ctxt, [ $head ] do with_stack!($ctxt, [ $($tail),+ ] do $e))
+	};
+
+    // Base case: matches a typed singleton, such as "StackItem::Number(x)".
+	($ctxt:ident, [ $item:pat ] do $e:expr) => {
+		match $ctxt.data_stack.pop() {
+            Some($item) => {
+                $e
+            },
+            Some(other) => Err(Error::TypeError("$t".to_string(), other.clone())),
+            None => Err(Error::StackUnderflow),
+        }
+	};
+    // Inductive case: matches a list of typed values, such as
+    // [StackItem::Number(x), StackItem::Number(y)].
+    ($ctxt:ident, [ $head:pat, $($tail:pat),+ ] do $e:expr) => {
+        with_stack!($ctxt, [ $head ] do with_stack!($ctxt, [ $($tail),+ ] do $e))
+	};
+}
+
 /// Call a binary operator on numeric types.
 fn call_binop<F>(ctxt: &mut Context, op: F) -> Result<()>
 where
     F: Fn(u64, u64) -> u64,
 {
-    match ctxt.data_stack.pop() {
-        Some(StackItem::Number(x)) => match ctxt.data_stack.pop() {
-            Some(StackItem::Number(y)) => {
-                ctxt.data_stack.push(StackItem::Number(op(x, y)));
-                Ok(())
-            }
-            Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
-            None => Err(Error::StackUnderflow),
-        },
-        Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
-        None => Err(Error::StackUnderflow),
-    }
+    with_stack!(ctxt, [StackItem::Number(x), StackItem::Number(y)] do {
+        ctxt.data_stack.push(StackItem::Number(op(x, y)));
+        Ok(())
+    })
 }
 
 impl Word {
@@ -131,234 +155,171 @@ impl Word {
     fn call(&self, ctxt: &mut Context) -> Result<()> {
         use Word::*;
 
-        let err =
-            match self {
-                Abort => Err(Error::Aborted),
-                Words => {
-                    for w in ctxt.dictionary.keys() {
-                        println!("{}", w);
-                    }
+        let err = match self {
+            Abort => Err(Error::Aborted),
+            Words => {
+                for w in ctxt.dictionary.keys() {
+                    println!("{}", w);
+                }
+                Ok(())
+            }
+            Colon => match ctxt.state {
+                State::Interpreting => {
+                    ctxt.state = State::WaitingForCompilationIdentifier;
                     Ok(())
                 }
-                Colon => match ctxt.state {
-                    State::Interpreting => {
-                        ctxt.state = State::WaitingForCompilationIdentifier;
-                        Ok(())
-                    }
-                    _ => Err(Error::InvalidState(
-                        "Already in compilation state".to_string(),
-                    )),
-                },
-                SemiColon => Err(Error::InvalidState(format!(
-                    "Cannot end definition in state {:?}",
-                    ctxt.state
-                ))),
-                Interpret => Err(Error::InvalidState(
-                    "Error: Already in interpretation state".to_string(),
+                _ => Err(Error::InvalidState(
+                    "Already in compilation state".to_string(),
                 )),
-                Compile => match &ctxt.state {
-                    State::CompilationPaused {
-                        name,
-                        subwords,
-                        stack_count,
-                    } => {
-                        ctxt.state = State::Compiling {
-                            name: name.clone(),
-                            subwords: subwords.clone(),
-                            stack_count: *stack_count,
-                        };
-                        Ok(())
-                    }
-                    _ => Err(Error::InvalidState(
-                        "Already in compilation state".to_string(),
-                    )),
-                },
-                Literal => Err(Error::InvalidState(
-                    "'Literal' seen outside of definition".to_string(),
-                )),
-                Comment => {
-                    ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
+            },
+            SemiColon => Err(Error::InvalidState(format!(
+                "Cannot end definition in state {:?}",
+                ctxt.state
+            ))),
+            Interpret => Err(Error::InvalidState(
+                "Error: Already in interpretation state".to_string(),
+            )),
+            Compile => match &ctxt.state {
+                State::CompilationPaused {
+                    name,
+                    subwords,
+                    stack_count,
+                } => {
+                    ctxt.state = State::Compiling {
+                        name: name.clone(),
+                        subwords: subwords.clone(),
+                        stack_count: *stack_count,
+                    };
                     Ok(())
                 }
-                Include => match ctxt.data_stack.pop() {
-                    Some(StackItem::String(s)) => match PathBuf::from_str(&s) {
-                        Ok(pb) => ctxt.interpret_file(&pb),
-                        Err(_) => unreachable!(),
-                    },
-                    Some(x) => Err(Error::TypeError("String".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
+                _ => Err(Error::InvalidState(
+                    "Already in compilation state".to_string(),
+                )),
+            },
+            Literal => Err(Error::InvalidState(
+                "'Literal' seen outside of definition".to_string(),
+            )),
+            Comment => {
+                ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
+                Ok(())
+            }
+            Include => with_stack!(ctxt, [ StackItem::String(s) ] do match PathBuf::from_str(&s) {
+                Ok(pb) => ctxt.interpret_file(&pb),
+                Err(_) => unreachable!(),
+            }),
 
-                Quote => {
-                    ctxt.state =
-                        State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
+            Quote => {
+                ctxt.state =
+                    State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
+                Ok(())
+            }
+
+            Point => with_stack!(ctxt, [StackItem::Number(y), StackItem::Number(x)] do {
+                ctxt.data_stack
+                    .push(StackItem::Point(crate::model::Point { x, y }));
+                Ok(())
+            }),
+            Rect => with_stack!(ctxt, [StackItem::Point(xy2), StackItem::Point(xy1)] do {
+                ctxt.data_stack.push(StackItem::Shape(
+                    crate::model::Shape::Rectangle { xy1, xy2 },
+                ));
+                Ok(())
+            }),
+            Board => with_stack!(ctxt, [StackItem::Shape(shape)] do {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::Board(shape)));
+                Ok(())
+            }),
+            Pad => with_stack!(ctxt, [StackItem::Shape(shape)] do {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::Pad(shape)));
+                Ok(())
+            }),
+            Group => {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::Group(vec![])));
+                Ok(())
+            }
+
+            Drop => with_stack!(ctxt, [_x] do Ok(())),
+            Dup => with_stack!(ctxt, [x] do {
+                ctxt.data_stack.push(x.clone());
+                ctxt.data_stack.push(x);
+                Ok(())
+            }),
+
+            Swap => with_stack!(ctxt, [y, x] do {
+                ctxt.data_stack.push(y);
+                ctxt.data_stack.push(x);
+                Ok(())
+            }),
+
+            Pick => with_stack!(ctxt, [StackItem::Number(i)] do {
+                if (i as usize) >= ctxt.data_stack.len() {
+                    Err(Error::StackUnderflow)
+                } else {
+                    let idx = ctxt.data_stack.len() - 1 - i as usize;
+                    let x = ctxt
+                        .data_stack
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or(StackItem::Number(0));
+                    ctxt.data_stack.push(x);
                     Ok(())
                 }
-                Point => match ctxt.data_stack.pop() {
-                    Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
-                        Some(StackItem::Number(x)) => {
-                            ctxt.data_stack
-                                .push(StackItem::Point(crate::model::Point { x, y }));
-                            Ok(())
-                        }
-                        Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
-                        None => Err(Error::StackUnderflow),
-                    },
-                    Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Rect => match ctxt.data_stack.pop() {
-                    Some(StackItem::Point(xy2)) => match ctxt.data_stack.pop() {
-                        Some(StackItem::Point(xy1)) => {
-                            ctxt.data_stack.push(StackItem::Shape(
-                                crate::model::Shape::Rectangle { xy1, xy2 },
-                            ));
-                            Ok(())
-                        }
-                        Some(x) => Err(Error::TypeError("Point".to_string(), x.clone())),
-                        None => Err(Error::StackUnderflow),
-                    },
-                    Some(y) => Err(Error::TypeError("Point".to_string(), y.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Board => match ctxt.data_stack.pop() {
-                    Some(StackItem::Shape(shape)) => {
-                        ctxt.data_stack
-                            .push(StackItem::Component(Component::Board(shape)));
-                        Ok(())
-                    }
-                    Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Pad => match ctxt.data_stack.pop() {
-                    Some(StackItem::Shape(shape)) => {
-                        ctxt.data_stack
-                            .push(StackItem::Component(Component::Pad(shape)));
-                        Ok(())
-                    }
-                    Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Group => {
+            }),
+
+            Show => {
+                ctxt.print_data_stack();
+                Ok(())
+            }
+            Display => with_stack!(ctxt, [x] do {
+                println!("{:?}", x);
+                Ok(())
+            }),
+
+            Add => call_binop(ctxt, std::ops::Add::add),
+            Sub => call_binop(ctxt, std::ops::Sub::sub),
+            Mul => call_binop(ctxt, std::ops::Mul::mul),
+            Div => call_binop(ctxt, std::ops::Div::div),
+
+            Insert => with_stack!(ctxt, [
+                StackItem::Component(Component::Group(mut v)),
+                StackItem::Component(cmpt)
+            ] do {
+                v.push(cmpt);
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::Group(v)));
+                Ok(())
+            }),
+
+            Store => with_stack!(ctxt, [StackItem::Address(addr)] do match addr {
+                Address::Model => with_stack!(ctxt, [StackItem::Component(cmpt)] do {
+                    let mut model_ref = ctxt.model.write().unwrap();
+                    *model_ref = cmpt;
+                    Ok(())
+                })
+            }),
+            Load => with_stack!(ctxt, [StackItem::Address(addr)] do match addr {
+                Address::Model => {
+                    let model_ref = ctxt.model.read().unwrap();
                     ctxt.data_stack
-                        .push(StackItem::Component(Component::Group(vec![])));
+                        .push(StackItem::Component(model_ref.clone()));
                     Ok(())
                 }
+            }),
+            Model => {
+                ctxt.data_stack.push(StackItem::Address(Address::Model));
+                Ok(())
+            }
 
-                Drop => match ctxt.data_stack.pop() {
-                    Some(_) => Ok(()),
-                    None => Err(Error::StackUnderflow),
-                },
-
-                Dup => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        ctxt.data_stack.push(x.clone());
-                        ctxt.data_stack.push(x);
-                        Ok(())
-                    }
-                    None => Err(Error::StackUnderflow),
-                },
-                Swap => match ctxt.data_stack.pop() {
-                    Some(y) => match ctxt.data_stack.pop() {
-                        Some(x) => {
-                            ctxt.data_stack.push(y);
-                            ctxt.data_stack.push(x);
-                            Ok(())
-                        }
-                        None => Err(Error::StackUnderflow),
-                    },
-                    None => Err(Error::StackUnderflow),
-                },
-                Pick => match ctxt.data_stack.pop() {
-                    Some(StackItem::Number(i)) => {
-                        if (i as usize) >= ctxt.data_stack.len() {
-                            Err(Error::StackUnderflow)
-                        } else {
-                            let idx = ctxt.data_stack.len() - 1 - i as usize;
-                            let x = ctxt
-                                .data_stack
-                                .get(idx)
-                                .cloned()
-                                .unwrap_or(StackItem::Number(0));
-                            ctxt.data_stack.push(x);
-                            Ok(())
-                        }
-                    }
-                    Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Show => {
-                    ctxt.print_data_stack();
-                    Ok(())
+            Defined(_, subwords) => {
+                for sw in subwords.iter() {
+                    ctxt.interpret_word(sw)?;
                 }
-                Display => match ctxt.data_stack.pop() {
-                    Some(x) => {
-                        println!("{:?}", x);
-                        Ok(())
-                    }
-                    None => Err(Error::StackUnderflow),
-                },
-
-                Add => call_binop(ctxt, std::ops::Add::add),
-                Sub => call_binop(ctxt, std::ops::Sub::sub),
-                Mul => call_binop(ctxt, std::ops::Mul::mul),
-                Div => call_binop(ctxt, std::ops::Div::div),
-
-                Insert => match ctxt.data_stack.pop() {
-                    Some(StackItem::Component(Component::Group(mut v))) => {
-                        match ctxt.data_stack.pop() {
-                            Some(StackItem::Component(cmpt)) => {
-                                v.push(cmpt);
-                                ctxt.data_stack.push(StackItem::Component(Component::Group(v)));
-                                Ok(())
-                            },
-                            Some(x) => Err(Error::TypeError("Group".to_string(), x.clone())),
-                            None => Err(Error::StackUnderflow),
-                        }
-                    },
-                    Some(x) => Err(Error::TypeError("Group".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-
-                Store => match ctxt.data_stack.pop() {
-                    Some(StackItem::Address(addr)) => match addr {
-                        Address::Model => match ctxt.data_stack.pop() {
-                            Some(StackItem::Component(cmpt)) => {
-                                let mut model_ref = ctxt.model.write().unwrap();
-                                *model_ref = cmpt;
-                                Ok(())
-                            }
-                            Some(x) => Err(Error::TypeError("Component".to_string(), x.clone())),
-                            None => Err(Error::StackUnderflow),
-                        },
-                    },
-                    Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Load => match ctxt.data_stack.pop() {
-                    Some(StackItem::Address(addr)) => match addr {
-                        Address::Model => {
-                            let model_ref = ctxt.model.read().unwrap();
-                            ctxt.data_stack
-                                .push(StackItem::Component(model_ref.clone()));
-                            Ok(())
-                        }
-                    },
-                    Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
-                    None => Err(Error::StackUnderflow),
-                },
-                Model => {
-                    ctxt.data_stack.push(StackItem::Address(Address::Model));
-                    Ok(())
-                }
-
-                Defined(_, subwords) => {
-                    for sw in subwords.iter() {
-                        ctxt.interpret_word(sw)?;
-                    }
-                    Ok(())
-                }
-            };
+                Ok(())
+            }
+        };
         match err {
             Err(_) => {
                 ctxt.data_stack.clear();
@@ -431,14 +392,10 @@ impl Word {
             Literal => match ctxt.state {
                 State::Compiling {
                     ref mut subwords, ..
-                } => match ctxt.data_stack.pop() {
-                    Some(StackItem::Number(x)) => {
-                        subwords.push(x.to_string());
-                        Ok(())
-                    }
-                    Some(x) => Err(Error::TypeError("Number".to_string(), x)),
-                    None => Err(Error::StackUnderflow),
-                },
+                } => with_stack!(ctxt, [StackItem::Number(x)] do {
+                    subwords.push(x.to_string());
+                    Ok(())
+                }),
                 _ => Err(Error::InvalidState(format!(
                     "Unexpected state {:?}",
                     ctxt.state
@@ -821,7 +778,10 @@ mod tests {
 
         {
             let mut ctxt = new_context();
-            assert_eq!(Err(Error::StackUnderflow), ctxt.interpret_line("1 2 3 3 pick"));
+            assert_eq!(
+                Err(Error::StackUnderflow),
+                ctxt.interpret_line("1 2 3 3 pick")
+            );
             assert_eq!(None, ctxt.data_stack.pop());
         }
 
@@ -870,6 +830,88 @@ mod tests {
         let mut ctxt = new_context();
         ctxt.interpret_line("2 6 /")?;
         assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn point() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 6 point")?;
+        assert_eq!(
+            Some(StackItem::Point(Point { x: 2, y: 6 })),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn rect() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 6 point 4 8 point rect")?;
+        assert_eq!(
+            Some(StackItem::Shape(Shape::Rectangle {
+                xy1: Point { x: 2, y: 6 },
+                xy2: Point { x: 4, y: 8 },
+            })),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn pad() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 6 point 4 8 point rect pad")?;
+        assert_eq!(
+            Some(StackItem::Component(Component::Pad(Shape::Rectangle {
+                xy1: Point { x: 2, y: 6 },
+                xy2: Point { x: 4, y: 8 },
+            }))),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn board() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("2 6 point 4 8 point rect board")?;
+        assert_eq!(
+            Some(StackItem::Component(Component::Board(Shape::Rectangle {
+                xy1: Point { x: 2, y: 6 },
+                xy2: Point { x: 4, y: 8 },
+            }))),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn group_insert() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line(
+            "0 0 point 10 10 point rect board \
+             2 6 point 4  8  point rect pad \
+             group insert insert",
+        )?;
+        assert_eq!(
+            Some(StackItem::Component(Component::Group(vec![
+                Component::Pad(Shape::Rectangle {
+                    xy1: Point { x: 2, y: 6 },
+                    xy2: Point { x: 4, y: 8 },
+                }),
+                Component::Board(Shape::Rectangle {
+                    xy1: Point { x: 0, y: 0 },
+                    xy2: Point { x: 10, y: 10 },
+                })
+            ]))),
+            ctxt.data_stack.pop()
+        );
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
     }
