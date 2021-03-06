@@ -53,6 +53,7 @@ pub enum Address {
     Model,
 }
 
+// TODO Document each word, its stack effect, and its desired behavior.
 #[derive(Clone)]
 enum Word {
     // Interpreter
@@ -68,10 +69,15 @@ enum Word {
 
     // Data types
     Quote, // Starts and ends a string
+
+    // Shapes
     Point,
     Rect,
+
+    // Components
     Board,
     Pad,
+    Group,
 
     // Stack operations
     Drop,
@@ -86,6 +92,9 @@ enum Word {
     Sub,
     Mul,
     Div,
+
+    // Arrays
+    Insert,
 
     // Memory
     Store,
@@ -122,87 +131,87 @@ impl Word {
     fn call(&self, ctxt: &mut Context) -> Result<()> {
         use Word::*;
 
-        let err = match self {
-            Abort => Err(Error::Aborted),
-            Words => {
-                for w in ctxt.dictionary.keys() {
-                    println!("{}", w);
-                }
-                Ok(())
-            }
-            Colon => match ctxt.state {
-                State::Interpreting => {
-                    ctxt.state = State::WaitingForCompilationIdentifier;
+        let err =
+            match self {
+                Abort => Err(Error::Aborted),
+                Words => {
+                    for w in ctxt.dictionary.keys() {
+                        println!("{}", w);
+                    }
                     Ok(())
                 }
-                _ => Err(Error::InvalidState(
-                    "Already in compilation state".to_string(),
-                )),
-            },
-            SemiColon => Err(Error::InvalidState(format!(
-                "Cannot end definition in state {:?}",
-                ctxt.state
-            ))),
-            Interpret => Err(Error::InvalidState(
-                "Error: Already in interpretation state".to_string(),
-            )),
-            Compile => match &ctxt.state {
-                State::CompilationPaused {
-                    name,
-                    subwords,
-                    stack_count,
-                } => {
-                    ctxt.state = State::Compiling {
-                        name: name.clone(),
-                        subwords: subwords.clone(),
-                        stack_count: *stack_count,
-                    };
-                    Ok(())
-                }
-                _ => Err(Error::InvalidState(
-                    "Already in compilation state".to_string(),
-                )),
-            },
-            Literal => Err(Error::InvalidState(
-                "'Literal' seen outside of definition".to_string(),
-            )),
-            Comment => {
-                ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
-                Ok(())
-            }
-            Include => match ctxt.data_stack.pop() {
-                Some(StackItem::String(s)) => match PathBuf::from_str(&s) {
-                    Ok(pb) => ctxt.interpret_file(&pb),
-                    Err(_) => unreachable!(),
-                },
-                Some(x) => Err(Error::TypeError("String".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-
-            Quote => {
-                ctxt.state =
-                    State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
-                Ok(())
-            }
-            Point => match ctxt.data_stack.pop() {
-                Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
-                    Some(StackItem::Number(x)) => {
-                        ctxt.data_stack
-                            .push(StackItem::Point(crate::model::Point { x, y }));
+                Colon => match ctxt.state {
+                    State::Interpreting => {
+                        ctxt.state = State::WaitingForCompilationIdentifier;
                         Ok(())
                     }
-                    Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+                    _ => Err(Error::InvalidState(
+                        "Already in compilation state".to_string(),
+                    )),
+                },
+                SemiColon => Err(Error::InvalidState(format!(
+                    "Cannot end definition in state {:?}",
+                    ctxt.state
+                ))),
+                Interpret => Err(Error::InvalidState(
+                    "Error: Already in interpretation state".to_string(),
+                )),
+                Compile => match &ctxt.state {
+                    State::CompilationPaused {
+                        name,
+                        subwords,
+                        stack_count,
+                    } => {
+                        ctxt.state = State::Compiling {
+                            name: name.clone(),
+                            subwords: subwords.clone(),
+                            stack_count: *stack_count,
+                        };
+                        Ok(())
+                    }
+                    _ => Err(Error::InvalidState(
+                        "Already in compilation state".to_string(),
+                    )),
+                },
+                Literal => Err(Error::InvalidState(
+                    "'Literal' seen outside of definition".to_string(),
+                )),
+                Comment => {
+                    ctxt.state = State::WaitingForCommentClose(Box::new(ctxt.state.clone()));
+                    Ok(())
+                }
+                Include => match ctxt.data_stack.pop() {
+                    Some(StackItem::String(s)) => match PathBuf::from_str(&s) {
+                        Ok(pb) => ctxt.interpret_file(&pb),
+                        Err(_) => unreachable!(),
+                    },
+                    Some(x) => Err(Error::TypeError("String".to_string(), x.clone())),
                     None => Err(Error::StackUnderflow),
                 },
-                Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Rect => match ctxt.data_stack.pop() {
-                Some(StackItem::Number(rot)) => match ctxt.data_stack.pop() {
+
+                Quote => {
+                    ctxt.state =
+                        State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
+                    Ok(())
+                }
+                Point => match ctxt.data_stack.pop() {
+                    Some(StackItem::Number(y)) => match ctxt.data_stack.pop() {
+                        Some(StackItem::Number(x)) => {
+                            ctxt.data_stack
+                                .push(StackItem::Point(crate::model::Point { x, y }));
+                            Ok(())
+                        }
+                        Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+                        None => Err(Error::StackUnderflow),
+                    },
+                    Some(y) => Err(Error::TypeError("Number".to_string(), y.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Rect => match ctxt.data_stack.pop() {
                     Some(StackItem::Point(xy2)) => match ctxt.data_stack.pop() {
                         Some(StackItem::Point(xy1)) => {
                             ctxt.data_stack.push(StackItem::Shape(
-                                crate::model::Shape::Rectangle { xy1, xy2, rot },
+                                crate::model::Shape::Rectangle { xy1, xy2 },
                             ));
                             Ok(())
                         }
@@ -212,126 +221,144 @@ impl Word {
                     Some(y) => Err(Error::TypeError("Point".to_string(), y.clone())),
                     None => Err(Error::StackUnderflow),
                 },
-                Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Board => match ctxt.data_stack.pop() {
-                Some(StackItem::Shape(shape)) => {
+                Board => match ctxt.data_stack.pop() {
+                    Some(StackItem::Shape(shape)) => {
+                        ctxt.data_stack
+                            .push(StackItem::Component(Component::Board(shape)));
+                        Ok(())
+                    }
+                    Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Pad => match ctxt.data_stack.pop() {
+                    Some(StackItem::Shape(shape)) => {
+                        ctxt.data_stack
+                            .push(StackItem::Component(Component::Pad(shape)));
+                        Ok(())
+                    }
+                    Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Group => {
                     ctxt.data_stack
-                        .push(StackItem::Component(Component::Board(shape)));
+                        .push(StackItem::Component(Component::Group(vec![])));
                     Ok(())
                 }
-                Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Pad => match ctxt.data_stack.pop() {
-                Some(StackItem::Shape(shape)) => {
-                    ctxt.data_stack
-                        .push(StackItem::Component(Component::Pad(shape)));
-                    Ok(())
-                }
-                Some(x) => Err(Error::TypeError("Shape".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
 
-            Drop => match ctxt.data_stack.pop() {
-                Some(_) => Ok(()),
-                None => Err(Error::StackUnderflow),
-            },
+                Drop => match ctxt.data_stack.pop() {
+                    Some(_) => Ok(()),
+                    None => Err(Error::StackUnderflow),
+                },
 
-            Dup => match ctxt.data_stack.pop() {
-                Some(x) => {
-                    ctxt.data_stack.push(x.clone());
-                    ctxt.data_stack.push(x);
-                    Ok(())
-                }
-                None => Err(Error::StackUnderflow),
-            },
-            Swap => match ctxt.data_stack.pop() {
-                Some(y) => match ctxt.data_stack.pop() {
+                Dup => match ctxt.data_stack.pop() {
                     Some(x) => {
-                        ctxt.data_stack.push(y);
+                        ctxt.data_stack.push(x.clone());
                         ctxt.data_stack.push(x);
                         Ok(())
                     }
                     None => Err(Error::StackUnderflow),
                 },
-                None => Err(Error::StackUnderflow),
-            },
-            Pick => match ctxt.data_stack.pop() {
-                Some(StackItem::Number(i)) => {
-                    if (i as usize) > ctxt.data_stack.len() {
-                        Err(Error::StackUnderflow)
-                    } else {
-                        let idx = ctxt.data_stack.len() - i as usize;
-                        let x = ctxt
-                            .data_stack
-                            .get(idx)
-                            .cloned()
-                            .unwrap_or(StackItem::Number(0));
-                        ctxt.data_stack.push(x);
-                        Ok(())
-                    }
-                }
-                Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Show => {
-                ctxt.print_data_stack();
-                Ok(())
-            }
-            Display => match ctxt.data_stack.pop() {
-                Some(x) => {
-                    println!("{:?}", x);
-                    Ok(())
-                }
-                None => Err(Error::StackUnderflow),
-            },
-
-            Add => call_binop(ctxt, std::ops::Add::add),
-            Sub => call_binop(ctxt, std::ops::Sub::sub),
-            Mul => call_binop(ctxt, std::ops::Mul::mul),
-            Div => call_binop(ctxt, std::ops::Div::div),
-
-            Store => match ctxt.data_stack.pop() {
-                Some(StackItem::Address(addr)) => match addr {
-                    Address::Model => match ctxt.data_stack.pop() {
-                        Some(StackItem::Component(cmpt)) => {
-                            let mut model_ref = ctxt.model.write().unwrap();
-                            *model_ref = cmpt;
+                Swap => match ctxt.data_stack.pop() {
+                    Some(y) => match ctxt.data_stack.pop() {
+                        Some(x) => {
+                            ctxt.data_stack.push(y);
+                            ctxt.data_stack.push(x);
                             Ok(())
                         }
-                        Some(x) => Err(Error::TypeError("Component".to_string(), x.clone())),
                         None => Err(Error::StackUnderflow),
                     },
+                    None => Err(Error::StackUnderflow),
                 },
-                Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Load => match ctxt.data_stack.pop() {
-                Some(StackItem::Address(addr)) => match addr {
-                    Address::Model => {
-                        let model_ref = ctxt.model.read().unwrap();
-                        ctxt.data_stack
-                            .push(StackItem::Component(model_ref.clone()));
+                Pick => match ctxt.data_stack.pop() {
+                    Some(StackItem::Number(i)) => {
+                        if (i as usize) > ctxt.data_stack.len() {
+                            Err(Error::StackUnderflow)
+                        } else {
+                            let idx = ctxt.data_stack.len() - i as usize;
+                            let x = ctxt
+                                .data_stack
+                                .get(idx)
+                                .cloned()
+                                .unwrap_or(StackItem::Number(0));
+                            ctxt.data_stack.push(x);
+                            Ok(())
+                        }
+                    }
+                    Some(x) => Err(Error::TypeError("Number".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Show => {
+                    ctxt.print_data_stack();
+                    Ok(())
+                }
+                Display => match ctxt.data_stack.pop() {
+                    Some(x) => {
+                        println!("{:?}", x);
                         Ok(())
                     }
+                    None => Err(Error::StackUnderflow),
                 },
-                Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
-                None => Err(Error::StackUnderflow),
-            },
-            Model => {
-                ctxt.data_stack.push(StackItem::Address(Address::Model));
-                Ok(())
-            }
 
-            Defined(_, subwords) => {
-                for sw in subwords.iter() {
-                    ctxt.interpret_word(sw)?;
+                Add => call_binop(ctxt, std::ops::Add::add),
+                Sub => call_binop(ctxt, std::ops::Sub::sub),
+                Mul => call_binop(ctxt, std::ops::Mul::mul),
+                Div => call_binop(ctxt, std::ops::Div::div),
+
+                Insert => match ctxt.data_stack.pop() {
+                    Some(StackItem::Component(Component::Group(mut v))) => {
+                        match ctxt.data_stack.pop() {
+                            Some(StackItem::Component(cmpt)) => {
+                                v.push(cmpt);
+                                ctxt.data_stack.push(StackItem::Component(Component::Group(v)));
+                                Ok(())
+                            },
+                            Some(x) => Err(Error::TypeError("Group".to_string(), x.clone())),
+                            None => Err(Error::StackUnderflow),
+                        }
+                    },
+                    Some(x) => Err(Error::TypeError("Group".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+
+                Store => match ctxt.data_stack.pop() {
+                    Some(StackItem::Address(addr)) => match addr {
+                        Address::Model => match ctxt.data_stack.pop() {
+                            Some(StackItem::Component(cmpt)) => {
+                                let mut model_ref = ctxt.model.write().unwrap();
+                                *model_ref = cmpt;
+                                Ok(())
+                            }
+                            Some(x) => Err(Error::TypeError("Component".to_string(), x.clone())),
+                            None => Err(Error::StackUnderflow),
+                        },
+                    },
+                    Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Load => match ctxt.data_stack.pop() {
+                    Some(StackItem::Address(addr)) => match addr {
+                        Address::Model => {
+                            let model_ref = ctxt.model.read().unwrap();
+                            ctxt.data_stack
+                                .push(StackItem::Component(model_ref.clone()));
+                            Ok(())
+                        }
+                    },
+                    Some(x) => Err(Error::TypeError("Address".to_string(), x.clone())),
+                    None => Err(Error::StackUnderflow),
+                },
+                Model => {
+                    ctxt.data_stack.push(StackItem::Address(Address::Model));
+                    Ok(())
                 }
-                Ok(())
-            }
-        };
+
+                Defined(_, subwords) => {
+                    for sw in subwords.iter() {
+                        ctxt.interpret_word(sw)?;
+                    }
+                    Ok(())
+                }
+            };
         match err {
             Err(_) => {
                 ctxt.data_stack.clear();
@@ -462,6 +489,7 @@ impl Word {
             Rect => "rect",
             Board => "board",
             Pad => "pad",
+            Group => "group",
 
             Drop => "drop",
             Pick => "pick",
@@ -474,6 +502,8 @@ impl Word {
             Sub => "-",
             Mul => "*",
             Div => "/",
+
+            Insert => "insert",
 
             Store => "!",
             Load => "@",
@@ -536,6 +566,7 @@ impl Context {
         install(Rect);
         install(Board);
         install(Pad);
+        install(Group);
 
         install(Drop);
         install(Pick);
@@ -549,6 +580,8 @@ impl Context {
         install(Mul);
         install(Div);
 
+        install(Insert);
+
         install(Store);
         install(Load);
         install(Model);
@@ -558,6 +591,7 @@ impl Context {
 
     pub fn interpret(&mut self) -> Result<()> {
         // `()` can be used when no completer is required
+        // TODO Add completion support
         let mut rl = Editor::<()>::new();
         if rl.load_history("history.txt").is_err() {
             println!("No previous history.");
