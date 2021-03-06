@@ -1,6 +1,6 @@
 //! Board Description Language
 
-use crate::model::{Component, Point, Shape};
+use crate::model::{Component, Layered, Point, Polarity, Shape};
 use rustyline::{error::ReadlineError, Editor};
 use std::collections::HashMap;
 use std::fs::File;
@@ -44,6 +44,7 @@ pub enum StackItem {
     String(String),
     Point(Point),
     Shape(Shape),
+    Layered(Layered),
     Component(Component),
     Address(Address),
 }
@@ -73,6 +74,7 @@ enum Word {
     // Shapes
     Point,
     Rect,
+    Layer,
 
     // Components
     Board,
@@ -225,14 +227,23 @@ impl Word {
                 ));
                 Ok(())
             }),
-            Board => with_stack!(ctxt, [StackItem::Shape(shape)] do {
-                ctxt.data_stack
-                    .push(StackItem::Component(Component::Board(shape)));
+            Layer => with_stack!(ctxt, [StackItem::Number(layer),  StackItem::Shape(shape)] do {
+                ctxt.data_stack.push(StackItem::Layered(Layered {
+                    // TODO Should this be a u64, for consistency?
+                    layer: layer as usize,
+                    shape,
+                    polarity: Polarity::Add,
+                }));
                 Ok(())
             }),
-            Pad => with_stack!(ctxt, [StackItem::Shape(shape)] do {
+            Board => with_stack!(ctxt, [StackItem::Layered(layered)] do {
                 ctxt.data_stack
-                    .push(StackItem::Component(Component::Pad(shape)));
+                    .push(StackItem::Component(Component::Board(layered)));
+                Ok(())
+            }),
+            Pad => with_stack!(ctxt, [StackItem::Layered(l)] do {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::Pad(l)));
                 Ok(())
             }),
             Group => {
@@ -444,6 +455,7 @@ impl Word {
             Quote => "\"",
             Point => "point",
             Rect => "rect",
+            Layer => "layer",
             Board => "board",
             Pad => "pad",
             Group => "group",
@@ -522,6 +534,7 @@ impl Context {
         install(Point);
         install(Rect);
         install(Board);
+        install(Layer);
         install(Pad);
         install(Group);
 
@@ -864,11 +877,15 @@ mod tests {
     #[test]
     fn pad() -> Result<()> {
         let mut ctxt = new_context();
-        ctxt.interpret_line("2 6 point 4 8 point rect pad")?;
+        ctxt.interpret_line("2 6 point 4 8 point rect 1 layer pad")?;
         assert_eq!(
-            Some(StackItem::Component(Component::Pad(Shape::Rectangle {
-                xy1: Point { x: 2, y: 6 },
-                xy2: Point { x: 4, y: 8 },
+            Some(StackItem::Component(Component::Pad(Layered {
+                layer: 1,
+                polarity: Polarity::Add,
+                shape: Shape::Rectangle {
+                    xy1: Point { x: 2, y: 6 },
+                    xy2: Point { x: 4, y: 8 },
+                }
             }))),
             ctxt.data_stack.pop()
         );
@@ -879,11 +896,15 @@ mod tests {
     #[test]
     fn board() -> Result<()> {
         let mut ctxt = new_context();
-        ctxt.interpret_line("2 6 point 4 8 point rect board")?;
+        ctxt.interpret_line("2 6 point 4 8 point rect 0 layer board")?;
         assert_eq!(
-            Some(StackItem::Component(Component::Board(Shape::Rectangle {
-                xy1: Point { x: 2, y: 6 },
-                xy2: Point { x: 4, y: 8 },
+            Some(StackItem::Component(Component::Board(Layered {
+                layer: 0,
+                polarity: Polarity::Add,
+                shape: Shape::Rectangle {
+                    xy1: Point { x: 2, y: 6 },
+                    xy2: Point { x: 4, y: 8 },
+                }
             }))),
             ctxt.data_stack.pop()
         );
@@ -895,19 +916,27 @@ mod tests {
     fn group_insert() -> Result<()> {
         let mut ctxt = new_context();
         ctxt.interpret_line(
-            "0 0 point 10 10 point rect board \
-             2 6 point 4  8  point rect pad \
+            "0 0 point 10 10 point rect 1 layer pad \
+             2 6 point 4  8  point rect 0 layer board \
              group insert insert",
         )?;
         assert_eq!(
             Some(StackItem::Component(Component::Group(vec![
-                Component::Pad(Shape::Rectangle {
-                    xy1: Point { x: 2, y: 6 },
-                    xy2: Point { x: 4, y: 8 },
+                Component::Board(Layered {
+                    layer: 0,
+                    polarity: Polarity::Add,
+                    shape: Shape::Rectangle {
+                        xy1: Point { x: 2, y: 6 },
+                        xy2: Point { x: 4, y: 8 },
+                    }
                 }),
-                Component::Board(Shape::Rectangle {
-                    xy1: Point { x: 0, y: 0 },
-                    xy2: Point { x: 10, y: 10 },
+                Component::Pad(Layered {
+                    layer: 1,
+                    polarity: Polarity::Add,
+                    shape: Shape::Rectangle {
+                        xy1: Point { x: 0, y: 0 },
+                        xy2: Point { x: 10, y: 10 },
+                    }
                 })
             ]))),
             ctxt.data_stack.pop()

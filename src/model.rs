@@ -41,10 +41,36 @@ impl Shape {
     }
 }
 
+/// Whether a shape adds or subtracts from a region's shape.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Polarity {
+    /// Remove this shape from the region, leaving a hole.
+    Subtract,
+    /// Fill in the area of the region defined by this shape.
+    Add,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layered {
+    pub layer: usize,
+    pub polarity: Polarity,
+    pub shape: Shape,
+}
+
+impl Layered {
+    pub fn render(&self, gl: &mut GlGraphics, args: &RenderArgs) {
+        gl.draw(args.viewport(), |c, gl| {
+            // TODO Draw each layer separately, then combine
+            // TODO Draw layers in different colors
+            self.shape.render(GREEN, c.transform, gl);
+        });
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Component {
-    Board(Shape),
-    Pad(Shape),
+    Board(Layered),
+    Pad(Layered),
     Group(Vec<Component>), // Do groups need transformation data to draw?
 }
 
@@ -53,11 +79,11 @@ impl Component {
         gl.draw(args.viewport(), |c, gl| {
             use Component::*;
             match self {
-                Board(s) => {
-                    s.render(GREEN, c.transform, gl);
+                Board(l) => {
+                    l.render(gl, args);
                 }
-                Pad(s) => {
-                    s.render(RED, c.transform, gl);
+                Pad(l) => {
+                    l.render(gl, args);
                 }
                 Group(cs) => {
                     for c in cs {

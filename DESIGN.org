@@ -93,3 +93,15 @@ system to a minimum.
   - =flip=
   - =layer=
 - Units of measure support
+
+* Model Structure
+
+FR4 programs construct a digital model of the printed circuit board to be fabricated. The model
+represents the board as a set of /components/, each of which is either atomic (e.g. a pad) or a
+composite structure of other sub-components. Components can contain many shapes, each on a separate
+board layer, giving a full description of the placement of each relevant geometry in the board. For
+example, the component representing an SMD resistor may need to specify the location of pads on the
+top copper layer, the windows in the soldermask for those pads, and the silkscreen pattern around
+the device. Each can be represented as a collection of primitive shapes assigned to specific layers
+in the design.
+
