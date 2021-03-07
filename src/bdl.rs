@@ -1,6 +1,5 @@
 //! Board Description Language
-
-use crate::model::{Component, Layered, Point, Polarity, Shape};
+use crate::model::{Component, Layered, Point, Shape};
 use rustyline::{error::ReadlineError, Editor};
 use std::collections::HashMap;
 use std::fs::File;
@@ -127,7 +126,9 @@ macro_rules! with_stack {
             Some($item) => {
                 $e
             },
-            Some(other) => Err(Error::TypeError("$t".to_string(), other.clone())),
+            // TODO Fix error message. This doesn't actually print the type.
+            // May need to use a proc macro here...
+            Some(other) => Err(Error::TypeError("$item".to_string(), other.clone())),
             None => Err(Error::StackUnderflow),
         }
 	};
@@ -232,7 +233,6 @@ impl Word {
                     // TODO Should this be a u64, for consistency?
                     layer: layer as usize,
                     shape,
-                    polarity: Polarity::Add,
                 }));
                 Ok(())
             }),
@@ -881,7 +881,6 @@ mod tests {
         assert_eq!(
             Some(StackItem::Component(Component::Pad(Layered {
                 layer: 1,
-                polarity: Polarity::Add,
                 shape: Shape::Rectangle {
                     xy1: Point { x: 2, y: 6 },
                     xy2: Point { x: 4, y: 8 },
@@ -900,7 +899,6 @@ mod tests {
         assert_eq!(
             Some(StackItem::Component(Component::Board(Layered {
                 layer: 0,
-                polarity: Polarity::Add,
                 shape: Shape::Rectangle {
                     xy1: Point { x: 2, y: 6 },
                     xy2: Point { x: 4, y: 8 },
@@ -924,7 +922,6 @@ mod tests {
             Some(StackItem::Component(Component::Group(vec![
                 Component::Board(Layered {
                     layer: 0,
-                    polarity: Polarity::Add,
                     shape: Shape::Rectangle {
                         xy1: Point { x: 2, y: 6 },
                         xy2: Point { x: 4, y: 8 },
@@ -932,7 +929,6 @@ mod tests {
                 }),
                 Component::Pad(Layered {
                     layer: 1,
-                    polarity: Polarity::Add,
                     shape: Shape::Rectangle {
                         xy1: Point { x: 0, y: 0 },
                         xy2: Point { x: 10, y: 10 },

@@ -1,9 +1,9 @@
 ( -*-Forth-*- )
 ( Test script demonstrating drawing. Should be run with graphics output. )
 
-10 10 point 20 20 point rect pad
+0 0 point 200 100 point rect 0 layer board
 
-0 0 point 200 100 point rect board
+10 10 point 20 20 point rect 1 layer pad
 
 group insert insert
 
