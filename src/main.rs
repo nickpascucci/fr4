@@ -114,9 +114,12 @@ fn main() {
         }
     };
 
-    if !res.is_ok() {
-        // TODO provide more informative error codes
-        println!("Error: {:?}", res);
-        std::process::exit(1);
+    match res {
+        Ok(_) | Err(bdl::Error::UserExit) => std::process::exit(0),
+        Err(e) => {
+            // TODO provide more informative error codes
+            println!("Error: {:?}", e);
+            std::process::exit(1);
+        }
     }
 }
