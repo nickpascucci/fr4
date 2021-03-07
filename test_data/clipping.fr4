@@ -1,0 +1,9 @@
+( -*-Forth-*- )
+( Test script demonstrating clipping of layer data. Should be run with graphics output. )
+
+0 0 point 200 100 point rect 2 layer mask
+10 10 point 20 20 point rect invert 2 layer mask
+
+group insert insert
+
+model !

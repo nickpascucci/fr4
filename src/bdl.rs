@@ -64,8 +64,11 @@ enum Word {
     Interpret,
     Compile,
     Literal,
+    // TODO Comma?
     Comment,
     Include,
+
+    // TODO Control flow
 
     // Data types
     Quote, // Starts and ends a string
@@ -73,11 +76,14 @@ enum Word {
     // Shapes
     Point,
     Rect,
+    Invert,
     Layer,
 
     // Components
     Board,
     Pad,
+    Mask,
+    Silk,
     Group,
 
     // Stack operations
@@ -228,6 +234,11 @@ impl Word {
                 ));
                 Ok(())
             }),
+            Invert => with_stack!(ctxt, [StackItem::Shape(shape)] do {
+                ctxt.data_stack
+                    .push(StackItem::Shape(Shape::Inverted(Box::new(shape))));
+                Ok(())
+            }),
             Layer => with_stack!(ctxt, [StackItem::Number(layer),  StackItem::Shape(shape)] do {
                 ctxt.data_stack.push(StackItem::Layered(Layered {
                     // TODO Should this be a u64, for consistency?
@@ -244,6 +255,16 @@ impl Word {
             Pad => with_stack!(ctxt, [StackItem::Layered(l)] do {
                 ctxt.data_stack
                     .push(StackItem::Component(Component::Pad(l)));
+                Ok(())
+            }),
+            Mask => with_stack!(ctxt, [StackItem::Layered(l)] do {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::SolderMask(l)));
+                Ok(())
+            }),
+            Silk => with_stack!(ctxt, [StackItem::Layered(l)] do {
+                ctxt.data_stack
+                    .push(StackItem::Component(Component::SilkScreen(l)));
                 Ok(())
             }),
             Group => {
@@ -455,9 +476,12 @@ impl Word {
             Quote => "\"",
             Point => "point",
             Rect => "rect",
+            Invert => "invert",
             Layer => "layer",
             Board => "board",
             Pad => "pad",
+            Mask => "mask",
+            Silk => "silk",
             Group => "group",
 
             Drop => "drop",
@@ -533,9 +557,12 @@ impl Context {
         install(Quote);
         install(Point);
         install(Rect);
+        install(Invert);
         install(Board);
         install(Layer);
         install(Pad);
+        install(Mask);
+        install(Silk);
         install(Group);
 
         install(Drop);

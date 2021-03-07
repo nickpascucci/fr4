@@ -1,11 +1,14 @@
 //! Circuit board model types and functions.
 
-use graphics::{math, types};
+use graphics::{draw_state, math, types};
 use opengl_graphics::GlGraphics;
 use piston::input::RenderArgs;
 
-const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 0.5];
+const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const TRANSPARENT: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Point {
@@ -30,7 +33,13 @@ pub enum Shape {
 }
 
 impl Shape {
-    pub fn render(&self, color: types::Color, transform: math::Matrix2d, gl: &mut GlGraphics) {
+    pub fn render(
+        &self,
+        color: types::Color,
+        draw_state: &draw_state::DrawState,
+        transform: math::Matrix2d,
+        gl: &mut GlGraphics,
+    ) {
         use graphics::*;
         match self {
             Shape::Rectangle { xy1, xy2 } => {
@@ -40,21 +49,16 @@ impl Shape {
                     xy2.x as f64,
                     xy2.y as f64,
                 );
-                rectangle(color, rect, transform, gl);
+                Rectangle::new(color).draw(rect, draw_state, transform, gl);
             }
-            // TODO Implement invert
-            Shape::Inverted(s) => s.render(color, transform, gl),
+            // Note: It is important that the clip be respected in other shapes' render methods,
+            // otherwise masks will not appear correctly. Additionally, the mask will only affect
+            // shapes drawn _after_ it.
+            Shape::Inverted(s) => {
+                s.render(RED, &DrawState::new_clip(), transform, gl);
+            }
         }
     }
-}
-
-/// Whether a shape adds or subtracts from a region's shape.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Polarity {
-    /// Remove this shape from the region, leaving a hole.
-    Subtract,
-    /// Fill in the area of the region defined by this shape.
-    Add,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +71,8 @@ pub struct Layered {
 pub enum Component {
     Board(Layered),
     Pad(Layered),
+    SolderMask(Layered),
+    SilkScreen(Layered),
     Group(Vec<Component>), // Do groups need transformation data to draw?
 }
 
@@ -78,12 +84,21 @@ impl Component {
             for (n, shapes) in layers {
                 for shape in shapes {
                     // TODO Layer colors
-                    let color = if n % 2 == 0 {
-                        GREEN
-                    } else {
-                        RED
+                    let color = match n % 4 {
+                        0 => GREEN,
+                        1 => RED,
+                        2 => BLUE,
+                        3 => WHITE,
+                        _ => unreachable!(),
                     };
-                    shape.render(color, c.transform, gl)
+                    shape.render(
+                        color,
+                        // &c.draw_state, // Default
+                        &draw_state::DrawState::new_outside(),
+                        // &c.draw_state.blend(draw_state::Blend::Multiply),
+                        c.transform,
+                        gl,
+                    )
                 }
             }
         });
@@ -112,6 +127,8 @@ impl Component {
         match self {
             Component::Board(Layered { layer, shape }) => add_to_layer(layers, layer, shape),
             Component::Pad(Layered { layer, shape }) => add_to_layer(layers, layer, shape),
+            Component::SolderMask(Layered { layer, shape }) => add_to_layer(layers, layer, shape),
+            Component::SilkScreen(Layered { layer, shape }) => add_to_layer(layers, layer, shape),
             Component::Group(components) => {
                 for cmpt in components {
                     let cmpt_layers = cmpt.to_layers();
