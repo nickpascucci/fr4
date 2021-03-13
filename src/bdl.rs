@@ -114,7 +114,9 @@ enum Word {
     Comment,
     Include,
 
-    // TODO Control flow
+    BlockOpen,
+    BlockClose,
+    Conditional,
 
     // Data types
     Quote, // Starts and ends a string
@@ -146,6 +148,9 @@ enum Word {
     Sub,
     Mul,
     Div,
+
+    // Comparisons
+    Eq,
 
     // Arrays
     Insert,
@@ -262,6 +267,38 @@ impl Word {
                 Err(_) => unreachable!(),
             }),
 
+            BlockOpen => {
+                ctxt.state = State::WaitingForBlockClose(Box::new(ctxt.state.clone()), Vec::new());
+                Ok(())
+            }
+            BlockClose => match &ctxt.state {
+                State::WaitingForBlockClose(prev, subwords) => {
+                    ctxt.data_stack.push(StackItem::Block(subwords.clone()));
+                    ctxt.state = *prev.clone();
+                    Ok(())
+                }
+                _ => Err(Error::InvalidState(format!(
+                    "'{}' seen without matching '{}'",
+                    BlockClose.name(),
+                    BlockOpen.name()
+                ))),
+            },
+            Conditional => {
+                with_stack!(ctxt, [
+                    StackItem::Block(right),
+                    StackItem::Block(left),
+                    StackItem::Boolean(test)
+                ] do {
+                    let block = if test {
+                        left
+                    } else {
+                        right
+                    };
+                    for w in block { ctxt.interpret_line(&w)?; }
+                    Ok(())
+                })
+            }
+
             Quote => {
                 ctxt.state =
                     State::WaitingForStringClose(Box::new(ctxt.state.clone()), String::new());
@@ -366,6 +403,11 @@ impl Word {
             Sub => call_binop(ctxt, std::ops::Sub::sub),
             Mul => call_binop(ctxt, std::ops::Mul::mul),
             Div => call_binop(ctxt, std::ops::Div::div),
+
+            Eq => with_stack!(ctxt, [a, b] do {
+                ctxt.data_stack.push(StackItem::Boolean(a == b));
+                Ok(())
+            }),
 
             Insert => with_stack!(ctxt, [
                 StackItem::Component(Component::Group(mut v)),
@@ -523,6 +565,10 @@ impl Word {
             Comment => "(",
             Include => "include",
 
+            BlockOpen => "{",
+            BlockClose => "}",
+            Conditional => "if-else",
+
             Quote => "\"",
             Point => "point",
             Rect => "rect",
@@ -546,6 +592,7 @@ impl Word {
             Sub => "-",
             Mul => "*",
             Div => "/",
+            Eq => "=",
 
             Insert => "insert",
 
@@ -561,9 +608,12 @@ impl Word {
 #[derive(Clone, Debug)]
 pub enum State {
     Interpreting,
-    WaitingForCommentClose(Box<Self>),
+
     WaitingForCompilationIdentifier,
+    WaitingForCommentClose(Box<Self>),
     WaitingForStringClose(Box<Self>, String),
+    WaitingForBlockClose(Box<Self>, Vec<String>),
+
     Compiling {
         name: String,
         subwords: Vec<String>,
@@ -605,6 +655,10 @@ impl Context {
         install(Comment);
         install(Include);
 
+        install(BlockOpen);
+        install(BlockClose);
+        install(Conditional);
+
         install(Quote);
         install(Point);
         install(Rect);
@@ -628,6 +682,7 @@ impl Context {
         install(Sub);
         install(Mul);
         install(Div);
+        install(Eq);
 
         install(Insert);
 
@@ -651,6 +706,7 @@ impl Context {
                 State::WaitingForCommentClose(_) => "(> ",
                 State::WaitingForCompilationIdentifier => "?> ",
                 State::WaitingForStringClose(_, _) => "\"> ",
+                State::WaitingForBlockClose(_, _) => "{> ",
                 State::Compiling { .. } => "c> ",
                 State::CompilationPaused { .. } => "[> ",
             };
@@ -708,7 +764,7 @@ impl Context {
             // TODO Refactor this to return the next state, rather than an err flag
             let res = match word.as_str() {
                 "bye" => return Err(Error::UserExit),
-                s => match &self.state {
+                s => match &mut self.state {
                     State::Interpreting | State::CompilationPaused { .. } => self.interpret_word(s),
                     State::Compiling { .. } => self.compile_word(s),
                     State::WaitingForCompilationIdentifier => {
@@ -740,6 +796,15 @@ impl Context {
                             }
                             s2.push_str(s);
                             self.state = State::WaitingForStringClose(prev.clone(), s2);
+                        }
+                        Ok(())
+                    }
+                    State::WaitingForBlockClose(prev, ref mut subwords) => {
+                        if s == Word::BlockClose.name() {
+                            self.data_stack.push(StackItem::Block(subwords.clone()));
+                            self.state = *prev.clone();
+                        } else {
+                            subwords.push(s.to_string());
                         }
                         Ok(())
                     }
@@ -1032,6 +1097,41 @@ mod tests {
             ]))),
             ctxt.data_stack.pop()
         );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn eq() -> Result<()> {
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("0 0 =")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("0 1 =")?;
+            assert_eq!(Some(StackItem::Boolean(false)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("\" abc \" \" abc \" =")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn if_else() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("0 0 = { 1 } { 2 } if-else")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
     }
