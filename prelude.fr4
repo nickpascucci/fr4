@@ -1,0 +1,16 @@
+( -*-Forth-*- )
+( The FR4 prelude, defining commonly-used operations which are not primitives. )
+
+: over
+  1 pick
+;
+
+: 2dup
+  over over
+;
+
+: -rot
+  rot rot
+;
+
+: assert! swap { drop } { . abort } if-else ;
