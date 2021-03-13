@@ -137,6 +137,7 @@ enum Word {
     Pick,
     Dup,
     Swap,
+    Rot,
     Show,
     Display,
 
@@ -328,6 +329,12 @@ impl Word {
 
             Swap => with_stack!(ctxt, [y, x] do {
                 ctxt.data_stack.push(y);
+                ctxt.data_stack.push(x);
+                Ok(())
+            }),
+            Rot => with_stack!(ctxt, [z, y, x] do {
+                ctxt.data_stack.push(y);
+                ctxt.data_stack.push(z);
                 ctxt.data_stack.push(x);
                 Ok(())
             }),
@@ -534,6 +541,7 @@ impl Word {
             Pick => "pick",
             Dup => "dup",
             Swap => "swap",
+            Rot => "rot",
             Show => ".s",
             Display => ".",
 
@@ -615,6 +623,7 @@ impl Context {
         install(Pick);
         install(Dup);
         install(Swap);
+        install(Rot);
         install(Show);
         install(Display);
 
@@ -810,6 +819,17 @@ mod tests {
         let mut ctxt = new_context();
         ctxt.interpret_line("1 2 swap")?;
         assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn rot() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 2 3 rot")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(Some(StackItem::Number(3)), ctxt.data_stack.pop());
         assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
