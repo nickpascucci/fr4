@@ -1,0 +1,27 @@
+( -*-Forth-*- )
+( Test script demonstrating control structures. )
+
+" prelude.fr4 " include
+
+( bool )
+0 0 = " expected true " assert!
+
+( Basic conditional )
+0 0 = { 10 } { 10 } if-else 10 = " expected 10 " assert!
+
+( TODO
+( Derived conditional, from definition of if )
+ 5 0 1 = { 10 } when 5 = " expected 5 " assert! drop
+)
+
+( TODO
+( Basic loop )
+{ 10 } { true } while
+)
+
+( TODO
+ ( Derived loop from while )
+ 10 { + 10 } for 110 = " expected 110 " assert!
+)
+
+bye
