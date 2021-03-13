@@ -179,9 +179,7 @@ macro_rules! with_stack {
             Some($item) => {
                 $e
             },
-            // TODO Fix error message. This doesn't actually print the type.
-            // May need to use a proc macro here...
-            Some(other) => Err(Error::TypeError("$item".to_string(), other.clone())),
+            Some(other) => Err(Error::TypeError(stringify!($item).to_string(), other.clone())),
             None => Err(Error::StackUnderflow),
         }
 	};
@@ -286,6 +284,7 @@ impl Word {
                     .push(StackItem::Shape(Shape::Inverted(Box::new(shape))));
                 Ok(())
             }),
+
             Layer => with_stack!(ctxt, [StackItem::Number(layer),  StackItem::Shape(shape)] do {
                 ctxt.data_stack.push(StackItem::Layered(Layered {
                     // TODO Should this be a u64, for consistency?
@@ -359,7 +358,7 @@ impl Word {
                 Ok(())
             }
             Display => with_stack!(ctxt, [x] do {
-                println!("{:?}", x);
+                println!("{}", x);
                 Ok(())
             }),
 
@@ -400,7 +399,7 @@ impl Word {
 
             Defined(_, subwords) => {
                 for sw in subwords.iter() {
-                    ctxt.interpret_word(sw)?;
+                    ctxt.interpret_line(sw)?;
                 }
                 Ok(())
             }
@@ -425,7 +424,6 @@ impl Word {
         use Word::*;
 
         let res = match self {
-            Abort => self.call(ctxt),
             Colon => Err(Error::InvalidState(
                 "Already in compilation state".to_string(),
             )),
@@ -487,7 +485,6 @@ impl Word {
                 ))),
             },
             Comment => self.call(ctxt),
-            Quote => self.call(ctxt),
             _ => {
                 if let Compiling {
                     ref mut subwords, ..
@@ -662,7 +659,10 @@ impl Context {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
                     match self.interpret_line(line.as_str()) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            println!("ok");
+                            self.print_data_stack();
+                        }
                         Err(Error::UserExit) => {
                             break;
                         }
@@ -722,6 +722,10 @@ impl Context {
                     State::WaitingForCommentClose(prev) => {
                         if s.ends_with(")") {
                             self.state = *prev.clone();
+                        } else if s == Word::Comment.name() {
+                            self.state = State::WaitingForCommentClose(Box::new(
+                                State::WaitingForCommentClose(prev.clone()),
+                            ))
                         }
                         Ok(())
                     }
@@ -746,8 +750,6 @@ impl Context {
                 return res;
             }
         }
-        println!("ok");
-        self.print_data_stack();
         Ok(())
     }
 
