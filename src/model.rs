@@ -8,7 +8,6 @@ const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const BLUE: [f32; 4] = [0.0, 0.0, 1.0, 0.5];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const TRANSPARENT: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Point {
@@ -17,6 +16,12 @@ pub struct Point {
 }
 // TODO Nicer Display implementations. One idea is to use Unicode glyphs for shapes, and to not
 // print all of their coordinates and details unless asked.
+
+impl std::fmt::Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
 
 // TODO Units of measure support.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +35,15 @@ pub enum Shape {
     // TODO Transformed shapes?
     /// Inverts a shape, so that it removes from the image instead of adds to it.
     Inverted(Box<Shape>),
+}
+
+impl std::fmt::Display for Shape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rectangle{ xy1, xy2 } => write!(f, "rect({}, {})", xy1, xy2),
+            Self::Inverted(s) => write!(f, "inverted({})", s),
+        }
+    }
 }
 
 impl Shape {
@@ -67,6 +81,12 @@ pub struct Layered {
     pub shape: Shape,
 }
 
+impl std::fmt::Display for Layered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({} on layer {})", self.shape, self.layer)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Component {
     Board(Layered),
@@ -74,6 +94,18 @@ pub enum Component {
     SolderMask(Layered),
     SilkScreen(Layered),
     Group(Vec<Component>), // Do groups need transformation data to draw?
+}
+
+impl std::fmt::Display for Component {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Component::Board(l) => write!(f, "board({})", l),
+            Component::Pad(p) => write!(f, "pad({})", p),
+            Component::SolderMask(s) => write!(f, "mask({})", s),
+            Component::SilkScreen(s) => write!(f, "screen({})", s),
+            Component::Group(g) => write!(f, "group({:?})", g),
+        }
+    }
 }
 
 impl Component {
