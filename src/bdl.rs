@@ -40,17 +40,63 @@ type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackItem {
     Number(u64),
+    Boolean(bool),
     String(String),
+
+    Block(Vec<String>),
+
     Point(Point),
     Shape(Shape),
     Layered(Layered),
+
     Component(Component),
+
     Address(Address),
+}
+
+impl StackItem {
+    fn as_type(&self) -> &'static str {
+        match self {
+            StackItem::Number(_) => "num",
+            StackItem::Boolean(_) => "bool",
+            StackItem::String(_) => "str",
+            StackItem::Block(_) => "block",
+            StackItem::Point(_) => "point",
+            StackItem::Shape(_) => "shape",
+            StackItem::Layered(_) => "layered",
+            StackItem::Component(_) => "component",
+            StackItem::Address(_) => "addr",
+        }
+    }
+}
+
+impl std::fmt::Display for StackItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StackItem::Number(x) => write!(f, "{}: {}", x, self.as_type()),
+            StackItem::Boolean(b) => write!(f, "{}: {}", b, self.as_type()),
+            StackItem::String(s) => write!(f, "{}: {}", s, self.as_type()),
+            StackItem::Block(b) => write!(f, "[{}]: {}", b.join(" "), self.as_type()),
+            StackItem::Point(p) => write!(f, "{}: {}", p, self.as_type()),
+            StackItem::Shape(s) => write!(f, "{}: {}", s, self.as_type()),
+            StackItem::Layered(l) => write!(f, "{}: {}", l, self.as_type()),
+            StackItem::Component(c) => write!(f, "{}: {}", c, self.as_type()),
+            StackItem::Address(a) => write!(f, "{}: {}", a, self.as_type()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Address {
     Model,
+}
+
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Address::Model => write!(f, "<model>"),
+        }
+    }
 }
 
 // TODO Document each word, its stack effect, and its desired behavior.
