@@ -1129,10 +1129,158 @@ mod tests {
 
     #[test]
     fn if_else() -> Result<()> {
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("0 0 = { 1 } { 2 } if-else")?;
+            assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("0 1 = { 1 } { 2 } if-else")?;
+            assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn basic_strings() -> Result<()> {
         let mut ctxt = new_context();
-        ctxt.interpret_line("0 0 = { 1 } { 2 } if-else")?;
-        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        ctxt.interpret_line("\" abc def  ghIJ \"")?;
+        assert_eq!(
+            Some(StackItem::String("abc def ghij".to_string())),
+            ctxt.data_stack.pop()
+        );
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
+    }
+
+    #[test]
+    fn basic_word_definitions() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line(": test 3 + ; 4 test")?;
+        assert_eq!(Some(StackItem::Number(7)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn compile_time_literal() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line(": test [ 4 3 + ] literal ; test")?;
+        assert_eq!(Some(StackItem::Number(7)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    // TODO Add support for using strings in word definitions.
+    // #[test]
+    fn string_in_word_definition() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line(": test \" foo \" ; test")?;
+        assert_eq!(
+            Some(StackItem::String("foo".to_string())),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn basic_block() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("{ test }")?;
+        assert_eq!(
+            Some(StackItem::Block(vec!["test".to_string()])),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn block_in_word_definition() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line(": test { 2 3 + } ; test")?;
+        assert_eq!(
+            Some(StackItem::Block(vec![
+                "2".to_string(),
+                "3".to_string(),
+                "+".to_string()
+            ])),
+            ctxt.data_stack.pop()
+        );
+        assert_eq!(None, ctxt.data_stack.pop());
+        Ok(())
+    }
+
+    #[test]
+    fn comments() -> Result<()> {
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("( this is a comment )")?;
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("(\n this is a multiline comment \n)")?;
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line(": test ( this is a  comment ) 2 + ; 3 test")?;
+            assert_eq!(Some(StackItem::Number(5)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bye() -> Result<()> {
+        let mut ctxt = new_context();
+        let res = ctxt.interpret_line("bye");
+        assert_eq!(Err(Error::UserExit), res);
+
+        Ok(())
+    }
+
+    #[test]
+    fn undefined_word() -> Result<()> {
+        let mut ctxt = new_context();
+        let res = ctxt.interpret_line("foo");
+        assert_eq!(Err(Error::UnrecognizedWord("foo".to_string())), res);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_states() {
+        let lines = [
+            "]", // End compilation state while in interpretation state
+            "[ [", // Enter compilation state twice
+            ";", // End definition without starting one
+            "[ :", // Definition in compilation state
+            ": foo :", // Nested definition
+            ": foo [ :", // Nested definition where the programmer was trying to be clever
+            "literal", // Literal used during interpretation
+            "}", // Unopened block
+        ];
+        for line in &lines {
+            let mut ctxt = new_context();
+            let res = ctxt.interpret_line(line);
+            assert!(matches!(res, Err(Error::InvalidState(_))));
+        }
+    }
+
+    #[test]
+    fn changed_stack_size_error() {
+        let mut ctxt = new_context();
+        let res = ctxt.interpret_line(": foo [ 1 ] ;");
+        assert_eq!(res, Err(Error::StackSizeChanged(0, 1)));
     }
 }
