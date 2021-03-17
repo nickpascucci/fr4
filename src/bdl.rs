@@ -626,6 +626,20 @@ pub enum State {
     },
 }
 
+impl State {
+    fn as_prompt(&self) -> &str {
+        match self {
+            State::Interpreting => "i> ",
+            State::WaitingForCommentClose(_) => "(> ",
+            State::WaitingForCompilationIdentifier => "?> ",
+            State::WaitingForStringClose(_, _) => "\"> ",
+            State::WaitingForBlockClose(_, _) => "{> ",
+            State::Compiling { .. } => "c> ",
+            State::CompilationPaused { .. } => "[> ",
+        }
+    }
+}
+
 pub struct Context {
     data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
@@ -701,16 +715,7 @@ impl Context {
             println!("No previous history.");
         }
         loop {
-            let prompt = match self.state {
-                State::Interpreting => "i> ",
-                State::WaitingForCommentClose(_) => "(> ",
-                State::WaitingForCompilationIdentifier => "?> ",
-                State::WaitingForStringClose(_, _) => "\"> ",
-                State::WaitingForBlockClose(_, _) => "{> ",
-                State::Compiling { .. } => "c> ",
-                State::CompilationPaused { .. } => "[> ",
-            };
-            let readline = rl.readline(prompt);
+            let readline = rl.readline(self.state.as_prompt());
             match readline {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
@@ -822,7 +827,7 @@ impl Context {
         match self.dictionary.get(word) {
             Some(xt) => {
                 let xt2 = &xt.clone();
-                self.compile(xt2)
+                xt2.compile(self)
             }
             None => match u64::from_str(word) {
                 Ok(_) => match self.state {
@@ -846,7 +851,7 @@ impl Context {
         match self.dictionary.get(word) {
             Some(xt) => {
                 let xt2 = &xt.clone();
-                self.call(xt2)
+                xt2.call(self)
             }
             None => match u64::from_str(word) {
                 Ok(x) => {
@@ -861,14 +866,6 @@ impl Context {
     fn print_data_stack(&self) {
         self.data_stack.iter().for_each(|i| print!("{:?} ", i));
         println!()
-    }
-
-    fn call(&mut self, xt: &Word) -> Result<()> {
-        xt.call(self)
-    }
-
-    fn compile(&mut self, xt: &Word) -> Result<()> {
-        xt.compile(self)
     }
 }
 
@@ -1261,14 +1258,14 @@ mod tests {
     #[test]
     fn invalid_states() {
         let lines = [
-            "]", // End compilation state while in interpretation state
-            "[ [", // Enter compilation state twice
-            ";", // End definition without starting one
-            "[ :", // Definition in compilation state
-            ": foo :", // Nested definition
+            "]",         // End compilation state while in interpretation state
+            "[ [",       // Enter compilation state twice
+            ";",         // End definition without starting one
+            "[ :",       // Definition in compilation state
+            ": foo :",   // Nested definition
             ": foo [ :", // Nested definition where the programmer was trying to be clever
-            "literal", // Literal used during interpretation
-            "}", // Unopened block
+            "literal",   // Literal used during interpretation
+            "}",         // Unopened block
         ];
         for line in &lines {
             let mut ctxt = new_context();
