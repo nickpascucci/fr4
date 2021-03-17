@@ -117,6 +117,7 @@ enum Word {
     BlockOpen,
     BlockClose,
     Conditional,
+    Loop,
 
     // Data types
     Quote, // Starts and ends a string
@@ -151,6 +152,13 @@ enum Word {
 
     // Comparisons
     Eq,
+    GreaterThan,
+
+    // Boolean Logic
+    True,
+    And,
+    Or,
+    Not,
 
     // Arrays
     Insert,
@@ -298,6 +306,24 @@ impl Word {
                     Ok(())
                 })
             }
+            Loop => {
+                with_stack!(ctxt, [
+                    StackItem::Block(test),
+                    StackItem::Block(body)
+                ] do {
+                    loop {
+                        for w in &test { ctxt.interpret_line(w)?; }
+
+                        if with_stack!(ctxt, [StackItem::Boolean(cont)] do Ok(cont))? {
+                            break;
+                        }
+
+                        for w in &body { ctxt.interpret_line(w)?; }
+                    }
+
+                    Ok(())
+                })
+            }
 
             Quote => {
                 ctxt.state =
@@ -406,6 +432,27 @@ impl Word {
 
             Eq => with_stack!(ctxt, [a, b] do {
                 ctxt.data_stack.push(StackItem::Boolean(a == b));
+                Ok(())
+            }),
+            GreaterThan => with_stack!(ctxt, [StackItem::Number(b), StackItem::Number(a)] do {
+                ctxt.data_stack.push(StackItem::Boolean(a > b));
+                Ok(())
+            }),
+
+            True => {
+                ctxt.data_stack.push(StackItem::Boolean(true));
+                Ok(())
+            }
+            And => with_stack!(ctxt, [StackItem::Boolean(a), StackItem::Boolean(b)] do {
+                ctxt.data_stack.push(StackItem::Boolean(a && b));
+                Ok(())
+            }),
+            Or => with_stack!(ctxt, [StackItem::Boolean(a), StackItem::Boolean(b)] do {
+                ctxt.data_stack.push(StackItem::Boolean(a || b));
+                Ok(())
+            }),
+            Not => with_stack!(ctxt, [StackItem::Boolean(a)] do {
+                ctxt.data_stack.push(StackItem::Boolean(!a));
                 Ok(())
             }),
 
@@ -568,6 +615,7 @@ impl Word {
             BlockOpen => "{",
             BlockClose => "}",
             Conditional => "if-else",
+            Loop => "loop",
 
             Quote => "\"",
             Point => "point",
@@ -592,7 +640,14 @@ impl Word {
             Sub => "-",
             Mul => "*",
             Div => "/",
+
             Eq => "=",
+            GreaterThan => ">",
+
+            True => "true",
+            And => "and",
+            Or => "or",
+            Not => "not",
 
             Insert => "insert",
 
@@ -672,6 +727,7 @@ impl Context {
         install(BlockOpen);
         install(BlockClose);
         install(Conditional);
+        install(Loop);
 
         install(Quote);
         install(Point);
@@ -696,7 +752,14 @@ impl Context {
         install(Sub);
         install(Mul);
         install(Div);
+
         install(Eq);
+        install(GreaterThan);
+
+        install(True);
+        install(And);
+        install(Or);
+        install(Not);
 
         install(Insert);
 
@@ -1099,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn eq() -> Result<()> {
+    fn comparisons() -> Result<()> {
         {
             let mut ctxt = new_context();
             ctxt.interpret_line("0 0 =")?;
@@ -1117,6 +1180,67 @@ mod tests {
         {
             let mut ctxt = new_context();
             ctxt.interpret_line("\" abc \" \" abc \" =")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("3 2 >")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("2 3 >")?;
+            assert_eq!(Some(StackItem::Boolean(false)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn logic() -> Result<()> {
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true true and")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true true or")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true true not and")?;
+            assert_eq!(Some(StackItem::Boolean(false)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true true not or")?;
+            assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
+            assert_eq!(None, ctxt.data_stack.pop());
+        }
+
+        {
+            let mut ctxt = new_context();
+            ctxt.interpret_line("true true not and not")?;
             assert_eq!(Some(StackItem::Boolean(true)), ctxt.data_stack.pop());
             assert_eq!(None, ctxt.data_stack.pop());
         }
@@ -1139,6 +1263,15 @@ mod tests {
             assert_eq!(Some(StackItem::Number(2)), ctxt.data_stack.pop());
             assert_eq!(None, ctxt.data_stack.pop());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn simple_loop() -> Result<()> {
+        let mut ctxt = new_context();
+        ctxt.interpret_line("1 { 0 } { dup 1 = } loop")?;
+        assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
+        assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
     }
 
