@@ -1,5 +1,12 @@
 #! /bin/bash
 
+function cleanup() {
+    rm *.profraw *.profdata
+}
+
+trap cleanup EXIT
+trap cleanup SIGINT
+
 LLVM_PROFILE_FILE=".fr4-%m.profraw" \
                  RUSTFLAGS="-Zinstrument-coverage" cargo +nightly test
 
@@ -31,14 +38,3 @@ cargo cov -- show \
       --Xdemangler=rustfilt \
       --format=html > /tmp/coverage.html \
       && open /tmp/coverage.html
-
-# cargo cov -- report \
-#       $OBJECTS \
-#       --instr-profile=.fr4.profdata \
-#       --use-color \
-#       --ignore-filename-regex='/.cargo/registry' \
-#       --ignore-filename-regex='/target' \
-#       --ignore-filename-regex='/rustc' \
-#       --summary-only
-      # --show-instantiation-summary --show-functions \
-
