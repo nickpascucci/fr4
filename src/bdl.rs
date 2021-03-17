@@ -760,9 +760,9 @@ impl Context {
 
     fn interpret_line(&mut self, line: &str) -> Result<()> {
         // TODO Don't lower if the context is reading a string.
-        for word in line.split_whitespace().map(|s| s.to_lowercase()) {
+        for word in line.split_whitespace() {
             // TODO Refactor this to return the next state, rather than an err flag
-            let res = match word.as_str() {
+            let res = match word.to_lowercase().as_str() {
                 "bye" => return Err(Error::UserExit),
                 s => match &mut self.state {
                     State::Interpreting | State::CompilationPaused { .. } => self.interpret_word(s),
@@ -794,7 +794,7 @@ impl Context {
                             if !s2.is_empty() {
                                 s2.push(' ');
                             }
-                            s2.push_str(s);
+                            s2.push_str(word);
                             self.state = State::WaitingForStringClose(prev.clone(), s2);
                         }
                         Ok(())
@@ -1148,9 +1148,9 @@ mod tests {
     #[test]
     fn basic_strings() -> Result<()> {
         let mut ctxt = new_context();
-        ctxt.interpret_line("\" abc def  ghIJ \"")?;
+        ctxt.interpret_line("\" abc def  ghIJ 123 \"")?;
         assert_eq!(
-            Some(StackItem::String("abc def ghij".to_string())),
+            Some(StackItem::String("abc def ghIJ 123".to_string())),
             ctxt.data_stack.pop()
         );
         assert_eq!(None, ctxt.data_stack.pop());
