@@ -1,22 +1,22 @@
 ( -*-Forth-*- )
 ( The FR4 prelude, defining commonly-used operations which are not primitives. )
 
-: over 1 pick ;
+: over ( a b -- a b a ) 1 pick ;
 
-: 2dup over over ;
+: 2dup ( a b -- a b a b ) over over ;
 
-: -rot rot rot ;
+: -rot ( a b c -- c a b ) rot rot ;
 
-: assert! swap { drop } { . abort } if-else ;
+: assert! ( b -- ) swap { drop } { . abort } if-else ;
 
-: false true not ;
+: false ( -- b ) true not ;
 
 : xor ( b b -- b ) 2dup or -rot and not and ;
 
-: >= 2dup > -rot = or ;
+: >= ( n n -- b ) 2dup > -rot = or ;
 
-: < swap >= not ;
+: < ( n n -- b ) swap >= not ;
 
-: <= swap > not ;
+: <= ( n n -- b ) swap > not ;
 
 : for ( n bl -- ) { 1 - dup 0 > } loop ;
