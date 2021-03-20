@@ -19,4 +19,8 @@
 
 : <= ( n n -- b ) swap > not ;
 
-: for ( n bl -- ) { 1 - dup 0 > } loop ;
+: for ( n bl -- )
+  swap 1 + swap ( Adjust the loop counter, because "loop" evaluates the condition first )
+  { 1 - dup 0 > } loop
+  drop ( Remove loop counter )
+;
