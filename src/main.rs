@@ -47,6 +47,7 @@ impl App {
 }
 
 fn main() {
+    env_logger::init();
     let args: Args = argh::from_env();
 
     let mut app = App {

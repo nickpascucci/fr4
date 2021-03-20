@@ -1,5 +1,6 @@
 //! Board Description Language
 use crate::model::{Component, Layered, Point, Shape};
+use log::debug;
 use rustyline::{error::ReadlineError, Editor};
 use std::collections::HashMap;
 use std::fs::File;
@@ -22,6 +23,8 @@ pub enum Error {
     StackSizeChanged(usize, usize),
     #[error("Stack underflow")]
     StackUnderflow,
+    #[error("Arithmetic underflow: {0} - {1} < 0")]
+    ArithmeticUnderflow(u64, u64),
     #[error("Aborted")]
     Aborted,
     #[error("Invalid state: {0}")]
@@ -100,7 +103,7 @@ impl std::fmt::Display for Address {
 }
 
 // TODO Document each word, its stack effect, and its desired behavior.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Word {
     // Interpreter
     Abort,
@@ -314,7 +317,7 @@ impl Word {
                     loop {
                         for w in &test { ctxt.interpret_line(w)?; }
 
-                        if with_stack!(ctxt, [StackItem::Boolean(cont)] do Ok(cont))? {
+                        if with_stack!(ctxt, [StackItem::Boolean(cont)] do Ok(!cont))? {
                             break;
                         }
 
@@ -426,7 +429,14 @@ impl Word {
             }),
 
             Add => call_binop(ctxt, std::ops::Add::add),
-            Sub => call_binop(ctxt, std::ops::Sub::sub),
+            Sub => with_stack!(ctxt, [StackItem::Number(r), StackItem::Number(l)] do {
+                if l >= r {
+                    ctxt.data_stack.push(StackItem::Number(l - r));
+                    Ok(())
+                } else {
+                    Err(Error::ArithmeticUnderflow(l, r))
+                }
+            }),
             Mul => call_binop(ctxt, std::ops::Mul::mul),
             Div => call_binop(ctxt, std::ops::Div::div),
 
@@ -695,6 +705,7 @@ impl State {
     }
 }
 
+#[derive(Debug)]
 pub struct Context {
     data_stack: Vec<StackItem>,
     dictionary: HashMap<String, Word>,
@@ -829,6 +840,7 @@ impl Context {
     fn interpret_line(&mut self, line: &str) -> Result<()> {
         // TODO Don't lower if the context is reading a string.
         for word in line.split_whitespace() {
+            debug!("Read '{}' in stack: {:?}", word, &self.data_stack);
             // TODO Refactor this to return the next state, rather than an err flag
             let res = match word.to_lowercase().as_str() {
                 "bye" => return Err(Error::UserExit),
