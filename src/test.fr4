@@ -1,0 +1,17 @@
+(-*-Forth-*-)
+\ Test board description file for FR4.
+
+: SMT_RESISTOR ( a b c -- , Define an SMT resistor component )
+  0 0 b a rect pad
+
+  b c +
+  0
+  b c b + +
+  rect pad
+
+  group insert insert
+;
+
+: M0603 ( -- , Add a metric 0603 resistor )
+  300 um 300 um 300 um smt_resistor
+;
