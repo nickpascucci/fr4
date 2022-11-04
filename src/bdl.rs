@@ -36,6 +36,14 @@ pub enum Error {
     #[error("The word {0} is not implemented yet!")]
     #[allow(dead_code)]
     NotImplemented(String),
+    #[error("Readline error: {0}")]
+    RustyLine(String),
+}
+
+impl From<ReadlineError> for Error {
+    fn from(e: ReadlineError) -> Self {
+        Self::RustyLine(e.to_string())
+    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -784,7 +792,7 @@ impl Context {
     pub fn interpret(&mut self) -> Result<()> {
         // `()` can be used when no completer is required
         // TODO Add completion support
-        let mut rl = Editor::<()>::new();
+        let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {
             println!("No previous history.");
         }
