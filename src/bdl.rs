@@ -1055,7 +1055,7 @@ mod tests {
     #[test]
     fn sub() -> Result<()> {
         let mut ctxt = new_context();
-        ctxt.interpret_line("1 2 -")?;
+        ctxt.interpret_line("2 1 -")?;
         assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
@@ -1282,6 +1282,7 @@ mod tests {
     fn simple_loop() -> Result<()> {
         let mut ctxt = new_context();
         ctxt.interpret_line("1 { 0 } { dup 1 = } loop")?;
+        assert_eq!(Some(StackItem::Number(0)), ctxt.data_stack.pop());
         assert_eq!(Some(StackItem::Number(1)), ctxt.data_stack.pop());
         assert_eq!(None, ctxt.data_stack.pop());
         Ok(())
