@@ -18,7 +18,7 @@ maintenance = { status = "experimental" }
 
 [dependencies]
 argh = "0.1.4"
-env_logger = "0.8.3"
+env_logger = "0.9.3"
 log = "0.4.14"
 piston = "0.53.1"
 piston2d-graphics = "0.42.0"
