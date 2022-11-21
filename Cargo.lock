@@ -326,7 +326,7 @@ dependencies = [
  "env_logger",
  "log",
  "piston",
- "piston2d-graphics",
+ "piston2d-graphics 0.42.0",
  "piston2d-opengl_graphics",
  "pistoncore-sdl2_window",
  "rustyline",
@@ -695,6 +695,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62c93564eef40a9920d026697f63d224efd7ac80981fb418fe1dad447c2d9bdd"
 
 [[package]]
+name = "piston-texture"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d84ca2ca1ea94fb003a85223f98c0705fe32abefa52dd58b57ed253dc908ce"
+
+[[package]]
 name = "piston-viewport"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,9 +715,22 @@ version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08852ecb6ef0486043d408d790d3abb38d4f6d6c4ee13adfc9e0dcbe9d95dd1d"
 dependencies = [
+ "interpolation",
+ "piston-texture 0.8.0",
+ "piston-viewport",
+ "read_color",
+ "vecmath",
+]
+
+[[package]]
+name = "piston2d-graphics"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "861e264a9a5ffc4514b89922750b19c9a83886158d539d4a52cb3b9b2d0d1f98"
+dependencies = [
  "fnv",
  "interpolation",
- "piston-texture",
+ "piston-texture 0.9.0",
  "piston-viewport",
  "read_color",
  "rusttype",
@@ -720,18 +739,18 @@ dependencies = [
 
 [[package]]
 name = "piston2d-opengl_graphics"
-version = "0.81.0"
+version = "0.82.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "878b4b1873acd31db83001e3c22761ea4dcf545ab30032a547bc939bad510e11"
+checksum = "62a12185c5d4ecd7fe8b85e0daecf5e49812063559a626d74fd3c5d0aa8a52f2"
 dependencies = [
  "fnv",
  "gl",
  "image",
  "khronos_api 2.2.0",
  "piston-shaders_graphics2d",
- "piston-texture",
+ "piston-texture 0.9.0",
  "piston-viewport",
- "piston2d-graphics",
+ "piston2d-graphics 0.43.0",
  "shader_version",
 ]
 
